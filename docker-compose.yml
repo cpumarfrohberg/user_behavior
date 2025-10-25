@@ -1,0 +1,23 @@
+services:
+  ux_data_collector:
+    build: .
+    volumes:
+      - ./data:/app/data
+    environment:
+      - STACKEXCHANGE_API_KEY=${STACKEXCHANGE_API_KEY:-}
+      - MONGODB_URI=mongodb://mongodb:27017
+      - MONGODB_DB=ux_data
+      - KUZU_URI=/app/data/kuzu/ux_data.kuzu
+    command: python setup_data_pipeline.py
+    depends_on:
+      - mongodb
+
+  mongodb:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+
+volumes:
+  mongodb_data:

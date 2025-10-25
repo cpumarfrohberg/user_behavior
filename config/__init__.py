@@ -31,6 +31,12 @@ class APIEndpoint(Enum):
     QUESTIONS = "questions"
     ANSWERS = "answers"
     SITES = "sites"
+    USERS = "users"
+    TAGS = "tags"
+    COMMENTS = "comments"
+    POSTS = "posts"
+    SEARCH = "search"
+    SIMILAR = "similar"
 
 
 class StackExchangeSite(Enum):
