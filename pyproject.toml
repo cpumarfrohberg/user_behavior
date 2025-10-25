@@ -1,60 +1,66 @@
-[project]
-name = "doc_assistant"
-version = "0.1.0"
-description = "RAG as doc_assistant"
-authors = [
-    {name = "Carlos Pumar-Frohberg", email = "cpumarfrohberg@gmail.com"}
-]
-requires-python = ">=3.11"
-readme = "README.md"
-license = "MIT"
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
+[project]
+name = "user behavior"
+version = "0.1.0"
+description = "discover patterns in user behavior"
+readme = "README.md"
+requires-python = ">=3.11"
 dependencies = [
-    "python-dotenv>=1.1.0",
-    "pydantic>=2.6.1",
-    "typer>=0.16.0",
-    "requests>=2.31.0",
-    "sentence-transformers>=2.2.2",
-    "minsearch>=0.0.7",
-    "openai>=1.0.0",
+    "pymongo>=4.0.0",
+    "typer>=0.9.0",
+    "sentence-transformers>=2.2.0",
     "numpy>=1.24.0",
-    "fastapi>=0.104.1",
-    "uvicorn[standard]>=0.24.0",
-    "psycopg2-binary>=2.9.9",
-    "redis>=5.0.1",
-    "sqlalchemy>=2.0.23",
-    "alembic>=1.13.1",
-    "python-multipart>=0.0.6",
-    "httpx>=0.25.2",
-    "asyncpg>=0.29.0",
-    "databases[postgresql]>=0.8.0",
-    "python-frontmatter>=1.0.0",
+    "ollama>=0.1.0",
+    "pydantic>=2.0.0",
+    "pydantic-ai>=0.0.12",
+    "fastapi>=0.100.0",
+    "uvicorn>=0.23.0",
+    "streamlit>=1.28.0",
+    "redis>=4.5.0",
+    "kuzu>=0.0.7",
+    "pandas>=2.0.0",
+    "python-dotenv>=1.0.0",
+    "minsearch>=0.0.7",
 ]
 
 [project.scripts]
-ra = "cli:app"
+ask = "cli:app"
 
-[dependency-groups]
-dev = [
-    "pytest>=8.4.0",
-    "pytest-cov>=6.2.1",
-    "pre-commit>=4.2.0",
-    "ty>=0.0.1a21",
+[tool.hatch.build.targets.wheel]
+packages = ["fetch_prep_data", "config"]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "ruff>=0.6.0",
+    "pre-commit>=3.0.0",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+    "--disable-warnings"
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "api: marks tests that make real API calls",
+    "integration: marks integration tests"
+]
 
-[build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+[tool.ruff]
+# Disable F401 (unused imports) for __init__.py files since they often re-export
+[tool.ruff.lint]
+ignore = ["F401"]
 
-[tool.setuptools.packages.find]
-include = ["core*", "prompt*", "fetch_prep_data*"]
-
-[tool.uv]
-package = true
-
-[tool.uv.workspace]
-members = []
+[tool.ruff.lint.per-file-ignores]
+"**/__init__.py" = ["F401"]
