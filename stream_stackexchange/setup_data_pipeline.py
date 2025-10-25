@@ -1,8 +1,3 @@
-#!/usr/bin/env python3
-"""
-Minimal StackExchange to MongoDB collector
-"""
-
 import os
 import time
 from typing import Dict, List
@@ -11,7 +6,7 @@ import requests
 from dotenv import load_dotenv
 from pymongo import MongoClient
 
-from config import DEFAULT_SITE, DEFAULT_TAGS, MONGODB_DB, MONGODB_URI, APIEndpoint
+from config import DEFAULT_SITE, DEFAULT_TAG, MONGODB_DB, MONGODB_URI, APIEndpoint
 
 load_dotenv()
 
@@ -34,11 +29,10 @@ class StackExchangeCollector:
         self.questions_endpoint = APIEndpoint.QUESTIONS.value
 
     def search_questions(
-        self, site: str = None, tags: List[str] = None, pages: int = DEFAULT_PAGES
+        self, site: str = None, tag: str = None, pages: int = DEFAULT_PAGES
     ) -> List[Dict]:
-        """Search for questions"""
         site = site or DEFAULT_SITE
-        tags = tags or DEFAULT_TAGS
+        tag = tag or DEFAULT_TAG
 
         all_questions = []
 
@@ -54,20 +48,37 @@ class StackExchangeCollector:
                 "filter": "withbody",
             }
 
-            if tags:
-                params["tagged"] = ";".join(tags)
+            if tag:
+                params["tagged"] = tag
 
             try:
+                print(f"   🔍 Fetching: {url}")
+                print(f"   📋 Params: {params}")
+
                 response = requests.get(url, params=params)
                 response.raise_for_status()
                 data = response.json()
                 questions = data.get("items", [])
 
+                print(f"   📄 Found {len(questions)} questions on page {page}")
+
+                if questions:
+                    # Show sample question for debugging
+                    sample = questions[0]
+                    print(
+                        f"   📝 Sample title: {sample.get('title', 'No title')[:60]}..."
+                    )
+                    print(f"   🏷️  Sample tags: {sample.get('tags', [])}")
+
+                relevant_count = 0
                 for question in questions:
                     if self._is_relevant(question):
                         question_data = self._process_question(question, site)
                         if question_data:
                             all_questions.append(question_data)
+                            relevant_count += 1
+
+                print(f"   ✅ {relevant_count} questions passed relevance filter")
 
                 time.sleep(1)
 
@@ -78,20 +89,40 @@ class StackExchangeCollector:
         return all_questions
 
     def _is_relevant(self, question: Dict) -> bool:
-        """Check if question is relevant"""
+        """Check if a question is related to user behavior and satisfaction"""
         title = question.get("title", "").lower()
         body = question.get("body", "").lower()
         tags = [tag.lower() for tag in question.get("tags", [])]
 
-        keywords = ["user", "behavior", "satisfaction", "usability", "experience"]
+        # If it has UX-related tags, it's likely behavior-related
+        ux_tags = [
+            "usability",
+            "user-interface",
+            "user-experience",
+            "interaction-design",
+            "user-research",
+            "user-testing",
+            "user-feedback",
+            "user-satisfaction",
+        ]
+
+        for tag in tags:
+            if any(ux_tag in tag for ux_tag in ux_tags):
+                return True
+
+        # Also check for behavior keywords (but less strict)
+        behavior_keywords = [
+            "behavior",
+            "satisfaction",
+            "frustration",
+            "user",
+            "usability",
+        ]
         text_content = f"{title} {body}"
 
-        return any(keyword in text_content for keyword in keywords) or any(
-            tag in ["usability", "user-experience", "user-interface"] for tag in tags
-        )
+        return any(keyword in text_content for keyword in behavior_keywords)
 
     def _process_question(self, question: Dict, site: str) -> Dict:
-        """Process a single question"""
         try:
             question_id = question.get("question_id")
             answers = self._get_answers(question_id, site)
@@ -112,7 +143,6 @@ class StackExchangeCollector:
             return None
 
     def _get_answers(self, question_id: int, site: str) -> List[Dict]:
-        """Get answers for a question"""
         try:
             url = f"{self.base_url}/{self.questions_endpoint}/{question_id}/answers"
             params = {
@@ -146,7 +176,6 @@ class StackExchangeCollector:
             return []
 
     def _store_in_mongodb(self, documents: List[Dict]) -> int:
-        """Store documents in MongoDB"""
         if not documents:
             return 0
 
@@ -172,10 +201,9 @@ class StackExchangeCollector:
             return 0
 
     def collect_and_store(
-        self, site: str = None, tags: List[str] = None, pages: int = DEFAULT_PAGES
+        self, site: str = None, tag: str = None, pages: int = DEFAULT_PAGES
     ):
-        """Main method to collect and store data"""
-        questions = self.search_questions(site, tags, pages)
+        questions = self.search_questions(site, tag, pages)
 
         if questions:
             stored_count = self._store_in_mongodb(questions)
@@ -184,12 +212,10 @@ class StackExchangeCollector:
             print("No questions collected")
 
     def close(self):
-        """Close MongoDB connection"""
         self.client.close()
 
 
 def main():
-    """Main function"""
     try:
         collector = StackExchangeCollector()
         collector.collect_and_store()

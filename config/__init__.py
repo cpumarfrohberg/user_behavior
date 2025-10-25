@@ -65,17 +65,7 @@ DEFAULT_MAX_CONTEXT_LENGTH = 1000
 DEFAULT_NUM_RESULTS = 1
 
 DEFAULT_SITE = StackExchangeSite.USER_EXPERIENCE.value
-DEFAULT_BACKUP_SITE = StackExchangeSite.MONEY.value
-DEFAULT_TAGS = [
-    "usability",
-    "user-interface",
-    "user-experience",
-    "interaction-design",
-    "user-research",
-    "user-testing",
-    "user-feedback",
-    "user-satisfaction",
-]
+DEFAULT_TAG = "usability"
 
 MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
 MONGODB_DB = os.getenv("MONGODB_DB", "ux_data")
