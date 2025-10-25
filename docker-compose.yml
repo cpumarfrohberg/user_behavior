@@ -8,7 +8,7 @@ services:
       - MONGODB_URI=mongodb://mongodb:27017
       - MONGODB_DB=ux_data
       - KUZU_URI=/app/data/kuzu/ux_data.kuzu
-    command: python setup_data_pipeline.py
+    command: python stream_stackexchange/setup_data_pipeline.py
     depends_on:
       - mongodb
 

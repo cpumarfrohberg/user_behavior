@@ -6,13 +6,9 @@ RUN apt-get update && apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install uv
-
 WORKDIR /app
 
-COPY pyproject.toml ./
-
-RUN uv pip install --system requests pymongo python-dotenv
+RUN pip install requests pymongo python-dotenv
 
 COPY config/ ./config/
 COPY stream_stackexchange/ ./stream_stackexchange/
