@@ -1,0 +1,60 @@
+[project]
+name = "doc_assistant"
+version = "0.1.0"
+description = "RAG as doc_assistant"
+authors = [
+    {name = "Carlos Pumar-Frohberg", email = "cpumarfrohberg@gmail.com"}
+]
+requires-python = ">=3.11"
+readme = "README.md"
+license = "MIT"
+
+dependencies = [
+    "python-dotenv>=1.1.0",
+    "pydantic>=2.6.1",
+    "typer>=0.16.0",
+    "requests>=2.31.0",
+    "sentence-transformers>=2.2.2",
+    "minsearch>=0.0.7",
+    "openai>=1.0.0",
+    "numpy>=1.24.0",
+    "fastapi>=0.104.1",
+    "uvicorn[standard]>=0.24.0",
+    "psycopg2-binary>=2.9.9",
+    "redis>=5.0.1",
+    "sqlalchemy>=2.0.23",
+    "alembic>=1.13.1",
+    "python-multipart>=0.0.6",
+    "httpx>=0.25.2",
+    "asyncpg>=0.29.0",
+    "databases[postgresql]>=0.8.0",
+    "python-frontmatter>=1.0.0",
+]
+
+[project.scripts]
+ra = "cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.0",
+    "pytest-cov>=6.2.1",
+    "pre-commit>=4.2.0",
+    "ty>=0.0.1a21",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["core*", "prompt*", "fetch_prep_data*"]
+
+[tool.uv]
+package = true
+
+[tool.uv.workspace]
+members = []
