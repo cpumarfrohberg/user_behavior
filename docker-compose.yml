@@ -8,5 +8,19 @@ services:
     environment:
       - MONGO_INITDB_DATABASE=user_behavior
 
+  neo4j:
+    image: neo4j:5-community
+    ports:
+      - "7474:7474"  # HTTP
+      - "7687:7687"  # Bolt
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    environment:
+      - NEO4J_AUTH=neo4j/your_secure_password
+      - NEO4J_PLUGINS=apoc
+
 volumes:
   mongodb_data:
+  neo4j_data:
+  neo4j_logs:

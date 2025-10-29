@@ -6,13 +6,13 @@ A system for analyzing user behavior patterns from social media discussions, bui
 
 ### Data Pipeline
 - **Collection**: Gathers user behavior discussions from StackExchange
-- **Processing**: RAG → Data Extraction → Statement Building → Graph Building (Kuzu DB)
+- **Processing**: RAG → Data Extraction → Statement Building → Graph Building (Neo4j)
 
 ### Agent System
 - **Orchestrator**: Manages conversation history and coordinates agents
 - **RAG Agent**: Handles document retrieval and generation
 - **Cypher Query Agent**: Executes graph database queries
-- **Interface**: Streamlit + FastAPI + Kuzu Explorer
+- **Interface**: Streamlit + FastAPI + Neo4j Browser
 
 ## Prerequisites
 
@@ -55,7 +55,7 @@ Other supported models:
 ### 1. Start Required Services
 
 ```bash
-# Start MongoDB (using Docker)
+# Start MongoDB and Neo4j (using Docker)
 docker-compose up -d
 
 # Start Ollama (if not already running)
@@ -120,6 +120,11 @@ MONGODB_DB=user_behavior
 OLLAMA_HOST=http://localhost:11434
 OLLAMA_MODEL=phi3:mini
 
+# Neo4j configuration (for future graph database features)
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=your_secure_password
+
 # Optional: StackExchange API (for data collection)
 STACKEXCHANGE_API_KEY=your_key
 
@@ -130,6 +135,10 @@ LOG_LEVEL=INFO
 ### MongoDB Setup
 
 The project requires a MongoDB instance with the `stackexchange_content` collection. The CLI loads documents from this collection to answer queries.
+
+### Neo4j Setup (Future)
+
+Neo4j will be used for storing and querying knowledge graphs of user behavior patterns. Once implemented, the graph database will enable complex relationship queries across behaviors, users, and interface patterns.
 
 ## Usage Examples
 
@@ -162,16 +171,16 @@ response = orchestrator.process_query(user_query, conversation_history)
 
 ### 2. Cypher Query Agent
 
-A specialized agent for executing graph database queries on Kuzu DB:
+A specialized agent for executing graph database queries on Neo4j:
 
 - **Query generation**: Convert natural language questions into Cypher queries
 - **Graph traversal**: Execute complex relationship queries across user behavior nodes
 - **Result interpretation**: Transform graph results into natural language answers
-- **Integration**: Connect Kuzu DB with the agent system
+- **Integration**: Connect Neo4j with the agent system
 
 ```python
 # Planned Cypher agent interface
-cypher_agent = CypherQueryAgent(kuzu_db_path)
+cypher_agent = CypherQueryAgent(neo4j_uri, neo4j_user, neo4j_password)
 response = cypher_agent.query("Show me frustration behavior patterns")
 ```
 
