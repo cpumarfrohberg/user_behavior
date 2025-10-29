@@ -1,8 +1,8 @@
 # Simple chunking utilities - your approach
-from typing import Any, Dict, List
+from typing import Any
 
 
-def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> List[str]:
+def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> list[str]:
     """Simple text chunking - your approach"""
     chunks = []
     start = 0
@@ -14,8 +14,8 @@ def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> List[st
 
 
 def chunk_documents(
-    documents: List[Dict[str, Any]], chunk_size: int = 1000, overlap: int = 200
-) -> List[Dict[str, Any]]:
+    documents: list[dict[str, Any]], chunk_size: int = 1000, overlap: int = 200
+) -> list[dict[str, Any]]:
     """Chunk documents using simple approach"""
     chunks = []
 

@@ -1,6 +1,6 @@
 # Simplified search system - Minsearch and SentenceTransformers only
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 from minsearch import Index
@@ -27,7 +27,7 @@ class FlexibleSearch:
         self,
         method: str = "minsearch",
         model_name: str = DEFAULT_SENTENCE_TRANSFORMER_MODEL,
-        text_fields: Optional[List[str]] = None,
+        text_fields: list[str] | None = None,
     ):
         self.method = method
         self.model_name = model_name
@@ -52,7 +52,7 @@ class FlexibleSearch:
         else:
             raise RAGError(f"Unsupported search method: {method}")
 
-    def add_documents(self, documents: List[Dict[str, Any]]) -> None:
+    def add_documents(self, documents: list[dict[str, Any]]) -> None:
         """Add documents to search index"""
         try:
             if not documents:
@@ -83,9 +83,9 @@ class FlexibleSearch:
         self,
         query: str,
         num_results: int = DEFAULT_NUM_RESULTS,
-        boost_dict: Optional[Dict[str, float]] = None,
-        filter_dict: Optional[Dict[str, Any]] = None,
-    ) -> List[Dict[str, Any]]:
+        boost_dict: dict[str, float] | None = None,
+        filter_dict: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
         """Search using the selected method"""
         try:
             if not query or not query.strip():
@@ -114,9 +114,9 @@ class FlexibleSearch:
         self,
         query: str,
         num_results: int,
-        boost_dict: Optional[Dict[str, float]] = None,
-        filter_dict: Optional[Dict[str, Any]] = None,
-    ) -> List[Dict[str, Any]]:
+        boost_dict: dict[str, float] | None = None,
+        filter_dict: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
         """Minsearch text-based search"""
         if self.minsearch_index is None:
             raise RAGError("Minsearch index not initialized")
@@ -145,7 +145,7 @@ class FlexibleSearch:
 
     def _sentence_transformers_search(
         self, query: str, num_results: int
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """SentenceTransformers vector search"""
         if self.embedder is None:
             raise RAGError("SentenceTransformer model not initialized")

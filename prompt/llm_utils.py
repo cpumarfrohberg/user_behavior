@@ -1,6 +1,5 @@
 # LLM utilities for user behavior RAG system with Ollama integration
 import logging
-from typing import Optional
 
 from config import (
     DEFAULT_RAG_MODEL,

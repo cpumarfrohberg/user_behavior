@@ -1,7 +1,7 @@
 # Core TextRAG system for user behavior analysis
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pymongo import MongoClient
 
@@ -47,8 +47,8 @@ class TextRAG:
     def __init__(
         self,
         config: RAGConfig,
-        search_index: Optional[SearchIndex] = None,
-        llm: Optional[OllamaLLM] = None,
+        search_index: SearchIndex | None = None,
+        llm: OllamaLLM | None = None,
     ):
         self.config = config
 
@@ -90,8 +90,8 @@ class TextRAG:
             raise
 
     def _parse_mongodb_documents(
-        self, docs: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
+        self, docs: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         """Private method to convert MongoDB docs to RAG format"""
         parsed_docs = []
         for doc in docs:
@@ -114,7 +114,7 @@ class TextRAG:
 
     def load_documents(
         self,
-        documents: List[Dict[str, Any]],
+        documents: list[dict[str, Any]],
         should_chunk: bool = True,
     ) -> None:
         """Load documents into the RAG system with simple chunking"""

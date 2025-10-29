@@ -31,9 +31,9 @@ def ask(
 
         # Set search type based on parameter
         if search_type.lower() == "sentence_transformers":
-            config.search_type = SearchType.SENTENCE_TRANSFORMERS.value
+            config.search_type = SearchType.SENTENCE_TRANSFORMERS
         else:
-            config.search_type = SearchType.MINSEARCH.value
+            config.search_type = SearchType.MINSEARCH
 
         if verbose:
             typer.echo(f"🔍 Using search type: {config.search_type}")
