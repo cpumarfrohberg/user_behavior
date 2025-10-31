@@ -18,4 +18,4 @@ RUN mkdir -p /app/data
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
-CMD ["python", "stream_stackexchange/setup_data_pipeline.py"]
+CMD ["python", "stream_stackexchange/collector.py"]

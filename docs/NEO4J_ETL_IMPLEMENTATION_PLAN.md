@@ -1,7 +1,7 @@
 # Neo4j ETL Implementation Plan
 
 ## Overview
-Refactor `neo4j_etl/src/dump_stackexchange_payload.py` to load StackExchange data from MongoDB into Neo4j as a knowledge graph.
+ETL pipeline to load StackExchange data from MongoDB into Neo4j as a knowledge graph. The implementation is organized into modular components: `extract.py` (data transformation), `validate.py` (Neo4j-specific validation), and `inject.py` (Neo4j operations), orchestrated by `dump_stackexchange_payload.py`.
 
 ---
 
@@ -69,11 +69,36 @@ NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "your_secure_password")
 - `NEO4J_URI` (default: `bolt://localhost:7687`)
 - `NEO4J_USER` (default: `neo4j`)
 - `NEO4J_PASSWORD` (required)
-- MongoDB: Uses existing `MONGO_URI`, `MONGO_DB_NAME`, `MONGO_COLLECTION_NAME`
+- MongoDB: Uses `MONGO_URI`, `MONGO_DB_NAME`, `MONGO_COLLECTION_NAME` which map to config constants `MONGODB_URI`, `MONGODB_DB`, `MONGODB_COLLECTION`
 
 ---
 
 ## Implementation Structure
+
+### Module Organization
+
+The ETL is organized into three modules:
+
+1. **`extract.py`** - Data collection and transformation
+   - `collect_batch_data()` - Transforms MongoDB documents into Neo4j-ready batch data
+   - `_add_user_if_new()` - Helper for user deduplication
+
+2. **`validate.py`** - Neo4j-specific validation (Option B: trust MongoDB, validate Neo4j-specifics)
+   - `validate_user()` - Validates and normalizes user data
+   - `validate_question()` - Validates question with body truncation (500 chars)
+   - `validate_answer()` - Validates answer with body truncation (500 chars)
+   - `validate_comment()` - Validates comment with body truncation (200 chars)
+   - `validate_tag()` - Validates tag names
+   - `_validate_post_with_body()` - DRY helper for post validation
+
+3. **`inject.py`** - Neo4j operations
+   - `set_uniqueness_constraints()` - Creates uniqueness constraints for all node types
+   - `_create_nodes()` - Batch creates all node types (Users, Tags, Questions, Answers, Comments)
+   - `_create_relationships()` - Batch creates all relationships
+   - `process_batch()` - Orchestrates node and relationship creation in a single transaction
+
+4. **`dump_stackexchange_payload.py`** - Main orchestrator
+   - `load_stackexchange_graph_from_mongodb()` - Main function that coordinates the ETL pipeline
 
 ### Main Function
 ```python
@@ -82,35 +107,11 @@ def load_stackexchange_graph_from_mongodb() -> None:
     """
     1. Connect to MongoDB and Neo4j
     2. Read all documents from MongoDB collection
-    3. Create constraints
-    4. Create nodes (Users, Tags, Questions, Answers, Comments)
-    5. Create relationships
-    6. Log progress
+    3. Create constraints (via inject.py)
+    4. Process batches: extract → validate → inject
+    5. Log progress
     """
 ```
-
-### Helper Functions
-
-1. **`_set_uniqueness_constraints(tx, node_label)`**
-   - Creates constraints for all node types
-   - Called for: User, Question, Answer, Comment, Tag
-
-2. **Node Creation Functions** (use parameterized Cypher MERGE):
-   - `_create_users()` - Batch MERGE User nodes
-   - `_create_tags()` - Batch MERGE Tag nodes
-   - `_create_questions()` - Batch MERGE Question nodes
-   - `_create_answers()` - Batch MERGE Answer nodes
-   - `_create_comments()` - Batch MERGE Comment nodes
-
-3. **Relationship Creation Functions** (use parameterized Cypher):
-   - `_create_user_question_relationships()` - ASKED
-   - `_create_user_answer_relationships()` - ANSWERED
-   - `_create_user_comment_relationships()` - COMMENTED
-   - `_create_question_answer_relationships()` - HAS_ANSWER
-   - `_create_question_comment_relationships()` - HAS_COMMENT (question comments)
-   - `_create_answer_comment_relationships()` - HAS_COMMENT (answer comments)
-   - `_create_question_tag_relationships()` - HAS_TAG
-   - `_create_accepted_answer_relationships()` - ACCEPTED ⭐
 
 ---
 
@@ -165,12 +166,9 @@ def load_stackexchange_graph_from_mongodb() -> None:
 
 ## Dependencies
 
-### Imports Needed:
+### Key Imports:
 ```python
-import logging
-import os
-from typing import Any
-
+# dump_stackexchange_payload.py
 from neo4j import GraphDatabase
 from pymongo import MongoClient
 from retry import retry
@@ -179,12 +177,21 @@ from config import (
     MONGODB_URI, MONGODB_DB, MONGODB_COLLECTION,
     NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD
 )
+
+# extract.py
+from neo4j_etl.src.validate import (
+    validate_answer, validate_comment, validate_question,
+    validate_tag, validate_user
+)
+
+# inject.py
+# Uses neo4j transaction functions (tx parameter)
 ```
 
-### Already Available:
-- `neo4j` package (in pyproject.toml: `neo4j==5.14.1`)
-- `retry` package (in pyproject.toml: `retry==0.9.2`)
-- `pymongo` package (already used in collector)
+### Packages:
+- `neo4j==5.14.1` - Neo4j Python driver
+- `retry==0.9.2` - Retry decorator for resilient operations
+- `pymongo` - MongoDB Python driver (already used in collector)
 
 ---
 
@@ -221,10 +228,17 @@ Follow the structure of similar ETL patterns:
 
 ---
 
-## Next Steps
+## Implementation Status
 
-1. Add Neo4j config constants to `config/__init__.py`
-2. Create `dump_stackexchange_payload.py` with full implementation
-3. Test with small dataset
-4. Run full ETL on complete MongoDB collection
-5. Verify graph structure in Neo4j Browser
+### ✅ Completed
+1. ✅ Neo4j config constants added to `config/__init__.py`
+2. ✅ Modular architecture implemented (`extract.py`, `validate.py`, `inject.py`)
+3. ✅ `dump_stackexchange_payload.py` orchestrator created
+4. ✅ Comprehensive test suite written (`test_extract.py`, `test_validate.py`, `test_inject.py`)
+
+### Next Steps
+
+1. Run ETL with small test dataset (5-10 questions)
+2. Verify graph structure in Neo4j Browser
+3. Run full ETL on complete MongoDB collection
+4. Monitor performance and optimize batch size if needed

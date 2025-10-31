@@ -1,204 +1,66 @@
 # User Behavior: Discover User Interaction Patterns
 
-A system for analyzing user behavior patterns from social media discussions, building knowledge graphs, and providing insights through an agent-based architecture.
+A system for analyzing user behavior patterns from StackExchange discussions, building knowledge graphs in Neo4j, and providing insights through an agent-based architecture.
 
 ## Architecture
 
-### Data Pipeline
-- **Collection**: Gathers user behavior discussions from StackExchange
-- **Processing**: RAG → Data Extraction → Statement Building → Graph Building (Neo4j)
-
-### Agent System
-- **Orchestrator**: Manages conversation history and coordinates agents
-- **RAG Agent**: Handles document retrieval and generation
-- **Cypher Query Agent**: Executes graph database queries
-- **Interface**: Streamlit + FastAPI + Neo4j Browser
+- **Data Pipeline**: StackExchange → MongoDB → Neo4j knowledge graph
+- **Agents**: Orchestrator, RAG Agent, Cypher Query Agent
+- **Interface**: CLI, Streamlit, FastAPI
 
 ## Prerequisites
 
-### Installing Dependencies
-
-This project uses **uv** for dependency management. Install dependencies:
-
 ```bash
+# Install dependencies
 uv sync
-```
 
-### Installing Ollama
-This project uses **Ollama** for LLM inference. Install it locally:
-
-```bash
-# macOS
-brew install ollama
-
-# Or download from https://ollama.ai/download
-```
-
-Start Ollama:
-```bash
+# Install and start Ollama
+brew install ollama  # macOS
 ollama serve
-```
-
-Pull the required model:
-```bash
 ollama pull phi3:mini
 ```
 
-Other supported models:
-- `tinyllama:1.1b`
-- `phi3:mini` (default)
-- `llama3.1:8b`
-- `mistral:7b`
-
 ## Quick Start
 
-### 1. Start Required Services
-
 ```bash
-# Start MongoDB and Neo4j (using Docker)
-docker-compose up -d
+# Start services
+docker-compose up -d  # MongoDB + Neo4j
+ollama serve           # LLM server
 
-# Start Ollama (if not already running)
-ollama serve
-```
-
-### 2. Run the CLI
-
-```bash
-# Basic query
-uv run ask "What are common user behavior patterns?"
-
-# With verbose output
-uv run ask "How do users react to confusing interfaces?" --verbose
-
-# Using sentence transformers search
-uv run ask "What is user behavior?" --search-type sentence_transformers
-
-# See all options
-uv run ask --help
-```
-
-## CLI Usage
-
-The CLI allows you to query the RAG system for user behavior insights:
-
-```bash
-# Basic usage
-uv run ask <question>
-
-# Options:
-#   --search-type, -s    : 'minsearch' (default) or 'sentence_transformers'
-#   --verbose, -v        : Show detailed output
-```
-
-### Example Commands
-
-```bash
-# Ask about user behavior patterns
-uv run ask "What are common user behavior patterns?" -v
-
-# Query with sentence transformers search
-uv run ask "How do users react to confusing interfaces?" \
-  --search-type sentence_transformers
-
-# Get detailed feedback
-uv run ask "What is cognitive load in UX?" --verbose
+# Run CLI
+uv run ask "What are common user behavior patterns?" --verbose
+uv run ask "How do users react to confusing interfaces?" --search-type sentence_transformers
 ```
 
 ## Configuration
 
-### Environment Variables
-
-Create a `.env` file in the project root:
+Create a `.env` file:
 
 ```bash
-# MongoDB connection
-MONGODB_URI=mongodb://localhost:27017/
-MONGODB_DB=user_behavior
+# MongoDB
+MONGO_URI=mongodb://localhost:27017/
+MONGO_DB_NAME=stackexchange
+MONGO_COLLECTION_NAME=questions
 
-# Ollama configuration
-OLLAMA_HOST=http://localhost:11434
-OLLAMA_MODEL=phi3:mini
-
-# Neo4j configuration (for future graph database features)
+# Neo4j
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
 NEO4J_PASSWORD=your_secure_password
 
-# Optional: StackExchange API (for data collection)
-STACKEXCHANGE_API_KEY=your_key
+# Ollama
+OLLAMA_HOST=http://localhost:11434
+OLLAMA_MODEL=phi3:mini
 
-# Optional: Logging
+# Optional
+STACKEXCHANGE_API_KEY=your_key
 LOG_LEVEL=INFO
 ```
 
-### MongoDB Setup
+## CLI Usage
 
-The project requires a MongoDB instance with the `stackexchange_content` collection. The CLI loads documents from this collection to answer queries.
-
-### Neo4j Setup (Future)
-
-Neo4j will be used for storing and querying knowledge graphs of user behavior patterns. Once implemented, the graph database will enable complex relationship queries across behaviors, users, and interface patterns.
-
-## Usage Examples
-
-### RAG Queries
-- "What are common user behavior patterns?"
-- "How do users react to confusing interfaces?"
-
-### Cypher Queries
-- "Show me frustration behavior patterns"
-- "Find relationships between interface complexity and user behavior"
-
-## Next Steps
-
-The current implementation includes the RAG system for querying StackExchange data. The following features are planned for future development:
-
-### 1. Orchestrator Agent
-
-An orchestrator agent will manage conversation flow and route queries to appropriate agents:
-
-- **Conversation management**: Maintain context and history across user interactions
-- **Query routing**: Determine whether a query requires RAG retrieval or graph database query
-- **Response synthesis**: Combine outputs from multiple agents into coherent answers
-- **Error handling**: Manage fallback strategies when agents fail
-
-```python
-# Planned orchestrator interface
-orchestrator = OrchestratorAgent()
-response = orchestrator.process_query(user_query, conversation_history)
+```bash
+uv run ask <question> [--search-type minsearch|sentence_transformers] [--verbose]
 ```
-
-### 2. Cypher Query Agent
-
-A specialized agent for executing graph database queries on Neo4j:
-
-- **Query generation**: Convert natural language questions into Cypher queries
-- **Graph traversal**: Execute complex relationship queries across user behavior nodes
-- **Result interpretation**: Transform graph results into natural language answers
-- **Integration**: Connect Neo4j with the agent system
-
-```python
-# Planned Cypher agent interface
-cypher_agent = CypherQueryAgent(neo4j_uri, neo4j_user, neo4j_password)
-response = cypher_agent.query("Show me frustration behavior patterns")
-```
-
-### 3. Graph Database Integration
-
-Build a knowledge graph from StackExchange discussions:
-
-- **Data extraction**: Parse discussions to extract entities and relationships
-- **Graph building**: Create nodes and edges representing user behaviors and patterns
-- **Cypher querying**: Enable complex graph traversals and pattern matching
-
-### 4. Unified Interface
-
-Combine all components into a single interface:
-
-- **Agent orchestration**: Coordinate RAG and Cypher agents
-- **Streamlit frontend**: Interactive web UI for querying
-- **FastAPI backend**: RESTful API for programmatic access
 
 ## License
 

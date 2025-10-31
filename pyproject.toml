@@ -31,7 +31,7 @@ dependencies = [
 ask = "cli:app"
 
 [tool.hatch.build.targets.wheel]
-packages = ["fetch_prep_data", "config"]
+packages = ["config"]
 
 [tool.uv]
 dev-dependencies = [
