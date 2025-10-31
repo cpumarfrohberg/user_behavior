@@ -3,7 +3,7 @@ import time
 
 import requests
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pymongo import MongoClient
 from pymongo.errors import DuplicateKeyError
 
@@ -21,6 +21,12 @@ class User(BaseModel):
     display_name: str | None = None
     reputation: int | None = None
 
+    @field_validator("display_name", mode="before")
+    @classmethod
+    def normalize_display_name(cls, v):
+        """Trim whitespace, handle None"""
+        return v.strip() if v and isinstance(v, str) else None
+
 
 class Comment(BaseModel):
     """Comment on a question or answer"""
@@ -29,6 +35,15 @@ class Comment(BaseModel):
     body: str
     score: int
     owner: User
+
+    @field_validator("body", mode="before")
+    @classmethod
+    def normalize_body(cls, v):
+        """Trim whitespace, ensure non-empty"""
+        if v is None:
+            return ""
+        body = str(v).strip()
+        return body if body else ""
 
 
 class Answer(BaseModel):
@@ -40,6 +55,12 @@ class Answer(BaseModel):
     is_accepted: bool
     owner: User | None = None
     comments: list[Comment] = Field(default_factory=list)
+
+    @field_validator("body", mode="before")
+    @classmethod
+    def normalize_body(cls, v):
+        """Trim whitespace"""
+        return str(v).strip() if v else ""
 
 
 class Question(BaseModel):
@@ -55,6 +76,21 @@ class Question(BaseModel):
     answers: list[Answer] = Field(default_factory=list)
     comments: list[Comment] = Field(default_factory=list)
     collected_at: float
+
+    @field_validator("title", "body", "site", mode="before")
+    @classmethod
+    def normalize_strings(cls, v):
+        """Trim whitespace"""
+        return str(v).strip() if v else ""
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def normalize_tags(cls, v):
+        """Remove empty tags, deduplicate"""
+        if not v:
+            return []
+        tags = [str(t).strip() for t in v if t and str(t).strip()]
+        return list(set(tags))  # Deduplicate
 
 
 class StackExchangeCollector:
@@ -168,17 +204,29 @@ class StackExchangeCollector:
         return any(keyword in text_content for keyword in behavior_keywords)
 
     def _process_question(self, question: dict, site: str) -> Question | None:
+        """Process question with minimal validation"""
         try:
             question_id = question.get("question_id")
+            if not question_id:
+                return None
+
             answers = self._get_answers(question_id, site)
 
-            # Extract owner/user data from question
+            # Extract owner/user data - only create User if we have meaningful data
             owner_data = question.get("owner", {})
-            owner = User(**owner_data) if owner_data else None
+            owner = None
+            if owner_data and (
+                owner_data.get("user_id") or owner_data.get("display_name")
+            ):
+                try:
+                    owner = User(**owner_data)
+                except Exception:
+                    owner = None  # Skip invalid owner, continue with question
 
             # Fetch comments for the question
             question_comments = self._get_comments(question_id, site, "question")
 
+            # Create Question - Pydantic handles validation/normalization
             return Question(
                 question_id=question_id,
                 title=question.get("title", ""),
@@ -213,24 +261,40 @@ class StackExchangeCollector:
 
             answers = []
             for answer_data in data.get("items", []):
-                # Extract owner data from answer
-                owner_data = answer_data.get("owner", {})
-                owner = User(**owner_data) if owner_data else None
+                try:
+                    answer_id = answer_data.get("answer_id")
+                    if not answer_id:
+                        continue
 
-                # Fetch comments for this answer
-                answer_id = answer_data.get("answer_id")
-                answer_comments = self._get_comments(answer_id, site, "answer")
+                    # Extract owner data - only create User if we have meaningful data
+                    owner_data = answer_data.get("owner", {})
+                    owner = None
+                    if owner_data and (
+                        owner_data.get("user_id") or owner_data.get("display_name")
+                    ):
+                        try:
+                            owner = User(**owner_data)
+                        except Exception:
+                            owner = None
 
-                answers.append(
-                    Answer(
-                        answer_id=answer_id,
-                        body=answer_data.get("body", ""),
-                        score=answer_data.get("score", 0),
-                        is_accepted=answer_data.get("is_accepted", False),
-                        owner=owner,
-                        comments=answer_comments,
+                    # Fetch comments for this answer
+                    answer_comments = self._get_comments(answer_id, site, "answer")
+
+                    answers.append(
+                        Answer(
+                            answer_id=answer_id,
+                            body=answer_data.get("body", ""),
+                            score=answer_data.get("score", 0),
+                            is_accepted=answer_data.get("is_accepted", False),
+                            owner=owner,
+                            comments=answer_comments,
+                        )
                     )
-                )
+                except Exception as e:
+                    print(
+                        f"Warning: Error processing answer {answer_data.get('answer_id')}: {e}"
+                    )
+                    continue
 
             time.sleep(1)
             return answers
@@ -268,18 +332,35 @@ class StackExchangeCollector:
 
             comments = []
             for comment_data in data.get("items", []):
-                # Extract owner data from comment
-                owner_data = comment_data.get("owner", {})
-                owner = User(**owner_data) if owner_data else User()
+                try:
+                    comment_id = comment_data.get("comment_id")
+                    if not comment_id:
+                        continue
 
-                comments.append(
-                    Comment(
-                        comment_id=comment_data.get("comment_id"),
-                        body=comment_data.get("body", ""),
-                        score=comment_data.get("score", 0),
-                        owner=owner,
+                    # Extract owner data - owner is required for comments
+                    owner_data = comment_data.get("owner", {})
+                    if not owner_data:
+                        continue
+
+                    try:
+                        owner = User(**owner_data)
+                    except Exception:
+                        # Create minimal user if validation fails
+                        owner = User(user_id=None, display_name=None, reputation=None)
+
+                    comments.append(
+                        Comment(
+                            comment_id=comment_id,
+                            body=comment_data.get("body", ""),
+                            score=comment_data.get("score", 0),
+                            owner=owner,
+                        )
                     )
-                )
+                except Exception as e:
+                    print(
+                        f"Warning: Error processing comment {comment_data.get('comment_id')}: {e}"
+                    )
+                    continue
 
             time.sleep(0.5)  # Rate limiting - comments endpoint is lighter
             return comments

@@ -184,4 +184,25 @@ NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "your_secure_password")
 
+# UX-related tags for relevance filtering
+UX_TAGS = [
+    "usability",
+    "user-interface",
+    "user-experience",
+    "interaction-design",
+    "user-research",
+    "user-testing",
+    "user-feedback",
+    "user-satisfaction",
+]
+
+# Behavior keywords for relevance filtering
+BEHAVIOR_KEYWORDS = [
+    "behavior",
+    "satisfaction",
+    "frustration",
+    "user",
+    "usability",
+]
+
 ollama_client = ollama.Client(host=OLLAMA_HOST)
