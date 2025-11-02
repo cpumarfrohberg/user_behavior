@@ -2,7 +2,10 @@
 import logging
 
 from config import (
+    DEFAULT_JUDGE_MODEL,
+    DEFAULT_MAX_TOKENS,
     DEFAULT_RAG_MODEL,
+    DEFAULT_TEMPERATURE,
     ollama_client,
 )
 
@@ -16,7 +19,7 @@ class OllamaLLM:
         self.model = model
         self.client = ollama_client
 
-    def query(self, prompt: str, temperature: float = 0.7) -> str:
+    def query(self, prompt: str, temperature: float = DEFAULT_TEMPERATURE) -> str:
         """Query Ollama and return simple text response"""
         try:
             logger.debug(f"Querying Ollama model {self.model}")
@@ -26,7 +29,7 @@ class OllamaLLM:
                 prompt=prompt,
                 options={
                     "temperature": temperature,
-                    "num_predict": 1000,  # Limit response length
+                    "num_predict": DEFAULT_MAX_TOKENS,
                 },
             )
 
@@ -35,11 +38,3 @@ class OllamaLLM:
         except Exception as e:
             logger.error(f"Error querying Ollama: {e}")
             raise
-
-
-def query_ollama(
-    prompt: str, model: str = DEFAULT_RAG_MODEL, temperature: float = 0.7
-) -> str:
-    """Convenience function to query Ollama"""
-    llm = OllamaLLM(model)
-    return llm.query(prompt, temperature)

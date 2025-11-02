@@ -11,10 +11,10 @@ from config import (
     DEFAULT_CONTENT_FIELD,
     DEFAULT_MAX_CONTEXT_LENGTH,
     DEFAULT_NUM_RESULTS,
-    DEFAULT_RAG_MODEL,
-    DEFAULT_SEARCH_TYPE,
+    DEFAULT_RAG_TEMPERATURE,
     MONGODB_DB,
     MONGODB_URI,
+    OLLAMA_RAG_MODEL,
     InstructionType,
     SearchType,
 )
@@ -30,9 +30,9 @@ logger = logging.getLogger(__name__)
 class RAGConfig:
     """Configuration for RAG system"""
 
-    search_type: str = DEFAULT_SEARCH_TYPE
+    search_type: SearchType = SearchType.SENTENCE_TRANSFORMERS
+    ollama_model: str = OLLAMA_RAG_MODEL
     instruction_type: InstructionType = InstructionType.RAG_AGENT
-    ollama_model: str = DEFAULT_RAG_MODEL
     chunk_size: int = DEFAULT_CHUNK_SIZE
     chunk_overlap: int = DEFAULT_CHUNK_OVERLAP
     max_context_length: int = DEFAULT_MAX_CONTEXT_LENGTH
@@ -47,14 +47,12 @@ class TextRAG:
     def __init__(
         self,
         config: RAGConfig,
-        search_index: SearchIndex | None = None,
-        llm: OllamaLLM | None = None,
     ):
         self.config = config
 
-        # Use provided dependencies or create defaults
-        self.search_index = search_index or SearchIndex(config.search_type)
-        self.llm = llm or OllamaLLM(config.ollama_model)
+        # Use search type and model from config
+        self.search_index = SearchIndex(config.search_type)
+        self.llm = OllamaLLM(model=config.ollama_model)
 
         logger.info(
             f"Initialized TextRAG with {config.search_type} search and {config.ollama_model} model"
@@ -158,7 +156,7 @@ class TextRAG:
         self,
         question: str,
         num_results: int = DEFAULT_NUM_RESULTS,
-        temperature: float = 0.3,
+        temperature: float = DEFAULT_RAG_TEMPERATURE,
         include_metadata: bool = True,
     ) -> RAGAnswer:
         """Query the RAG system and return structured response"""

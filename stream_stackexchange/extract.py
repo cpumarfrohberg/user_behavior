@@ -20,14 +20,16 @@ def extract_user(owner_data: dict[str, Any] | None) -> User | None:
     if not owner_data:
         return None
 
-    # Only create User if we have meaningful data
-    if not (owner_data.get("user_id") or owner_data.get("display_name")):
-        return None
-
     try:
+        # Create User - model accepts None for all fields
         return User(**owner_data)
     except Exception:
-        return None
+        # If validation fails, create minimal user with available data
+        return User(
+            user_id=owner_data.get("user_id"),
+            display_name=owner_data.get("display_name"),
+            reputation=owner_data.get("reputation"),
+        )
 
 
 def extract_comment(comment_data: dict[str, Any]) -> Comment | None:

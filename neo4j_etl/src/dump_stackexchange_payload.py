@@ -1,6 +1,7 @@
 """Load StackExchange data from MongoDB into Neo4j as knowledge graph"""
 
 import logging
+import os
 from typing import Any
 
 from neo4j import GraphDatabase
@@ -31,9 +32,22 @@ BATCH_SIZE = 75  # 50-100 questions per transaction
 
 
 @retry(tries=100, delay=10)
-def load_stackexchange_graph_from_mongodb() -> None:
+def load_stackexchange_graph_from_mongodb(
+    mongo_db_name: str | None = None,
+    mongo_collection_name: str | None = None,
+    neo4j_uri: str | None = None,
+    neo4j_user: str | None = None,
+    neo4j_password: str | None = None,
+) -> None:
     """
     Load StackExchange data from MongoDB into Neo4j as knowledge graph
+
+    Args:
+        mongo_db_name: MongoDB database name (defaults to MONGODB_DB from config)
+        mongo_collection_name: MongoDB collection name (defaults to MONGODB_COLLECTION from config)
+        neo4j_uri: Neo4j URI (defaults to NEO4J_URI from config, supports cloud URIs like bolt://host:port)
+        neo4j_user: Neo4j username (defaults to NEO4J_USER from config)
+        neo4j_password: Neo4j password (defaults to NEO4J_PASSWORD from config)
 
     1. Connect to MongoDB and Neo4j
     2. Read all documents from MongoDB collection
@@ -41,15 +55,25 @@ def load_stackexchange_graph_from_mongodb() -> None:
     4. Create nodes and relationships in batches (single transaction per batch)
     5. Log progress
     """
+    # Use provided values or fall back to config/environment variables
+    db_name = mongo_db_name or MONGODB_DB
+    collection_name = mongo_collection_name or MONGODB_COLLECTION
+    neo4j_uri_final = neo4j_uri or os.getenv("NEO4J_URI", NEO4J_URI)
+    neo4j_user_final = neo4j_user or os.getenv("NEO4J_USER", NEO4J_USER)
+    neo4j_password_final = neo4j_password or os.getenv("NEO4J_PASSWORD", NEO4J_PASSWORD)
+
     # Connect to MongoDB
-    LOGGER.info("Connecting to MongoDB...")
+    LOGGER.info(f"Connecting to MongoDB at {MONGODB_URI}...")
+    LOGGER.info(f"Using database: {db_name}, collection: {collection_name}")
     mongo_client = MongoClient(MONGODB_URI)
-    mongo_db = mongo_client[MONGODB_DB]
-    mongo_collection = mongo_db[MONGODB_COLLECTION]
+    mongo_db = mongo_client[db_name]
+    mongo_collection = mongo_db[collection_name]
 
     # Connect to Neo4j
-    LOGGER.info("Connecting to Neo4j...")
-    driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+    LOGGER.info(f"Connecting to Neo4j at {neo4j_uri_final}...")
+    driver = GraphDatabase.driver(
+        neo4j_uri_final, auth=(neo4j_user_final, neo4j_password_final)
+    )
 
     try:
         # Create uniqueness constraints
@@ -108,4 +132,33 @@ def load_stackexchange_graph_from_mongodb() -> None:
 
 
 if __name__ == "__main__":
-    load_stackexchange_graph_from_mongodb()
+    import sys
+
+    # Allow command-line arguments for database and collection
+    mongo_db = None
+    mongo_collection = None
+    neo4j_uri = None
+    neo4j_user = None
+    neo4j_password = None
+
+    # Parse simple command-line args (optional)
+    if len(sys.argv) > 1:
+        for arg in sys.argv[1:]:
+            if arg.startswith("--db="):
+                mongo_db = arg.split("=", 1)[1]
+            elif arg.startswith("--collection="):
+                mongo_collection = arg.split("=", 1)[1]
+            elif arg.startswith("--neo4j-uri="):
+                neo4j_uri = arg.split("=", 1)[1]
+            elif arg.startswith("--neo4j-user="):
+                neo4j_user = arg.split("=", 1)[1]
+            elif arg.startswith("--neo4j-password="):
+                neo4j_password = arg.split("=", 1)[1]
+
+    load_stackexchange_graph_from_mongodb(
+        mongo_db_name=mongo_db,
+        mongo_collection_name=mongo_collection,
+        neo4j_uri=neo4j_uri,
+        neo4j_user=neo4j_user,
+        neo4j_password=neo4j_password,
+    )
