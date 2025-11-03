@@ -7,6 +7,7 @@ from config import (
     DEFAULT_BEST_RESULTS_COUNT,
     DEFAULT_GRID_SEARCH_CHUNK_SIZES,
     DEFAULT_GRID_SEARCH_OVERLAPS,
+    DEFAULT_GRID_SEARCH_RESULTS_OUTPUT,
     DEFAULT_GRID_SEARCH_SAMPLES,
     DEFAULT_GRID_SEARCH_TOP_KS,
     DEFAULT_GROUND_TRUTH_MIN_TITLE_LENGTH,
@@ -23,6 +24,7 @@ from evals.generate_ground_truth import (
     generate_ground_truth_from_mongodb,
     save_ground_truth,
 )
+from evals.save_results import save_grid_search_results
 from search.search_utils import RAGError
 from search.simple_chunking import (
     evaluate_chunking_grid,
@@ -213,7 +215,6 @@ def evaluate_chunking(
     overlaps: str = typer.Option(
         None,
         "--overlaps",
-        "-o",
         help="Comma-separated overlaps for grid search (e.g., '0,15,50')",
     ),
     top_ks: str = typer.Option(
@@ -239,6 +240,17 @@ def evaluate_chunking(
         "--best-n",
         "-b",
         help="Number of best results to display",
+    ),
+    output: str = typer.Option(
+        DEFAULT_GRID_SEARCH_RESULTS_OUTPUT,
+        "--output",
+        "-o",
+        help="Path to save grid search results CSV file",
+    ),
+    save: bool = typer.Option(
+        True,
+        "--save/--no-save",
+        help="Save results to CSV file",
     ),
 ):
     """Evaluate chunking parameters using randomized grid search
@@ -328,6 +340,27 @@ def evaluate_chunking(
             typer.echo(
                 f"   Hit Rate: {result['hit_rate']:.3f}, MRR: {result['mrr']:.3f}, Tokens: {result['num_tokens']:.1f}"
             )
+
+        # Save results if requested
+        if save:
+            metadata = {
+                "search_type": str(search_type_enum),
+                "chunk_sizes": chunk_sizes_list,
+                "overlaps": overlaps_list,
+                "top_ks": top_ks_list,
+                "n_samples": n_samples,
+                "ground_truth_file": str(ground_truth_path),
+                "num_ground_truth_samples": len(ground_truth),
+                "num_documents": len(documents),
+            }
+
+            saved_path = save_grid_search_results(
+                results=results,
+                output_path=output,
+                metadata=metadata,
+            )
+
+            typer.echo(f"\n💾 Saved results to {saved_path}")
 
         typer.echo("\n✅ Grid search complete!")
 

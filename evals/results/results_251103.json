@@ -1,0 +1,234 @@
+{
+  "timestamp": "2025-11-03T06:25:33.251644",
+  "metadata": {
+    "search_type": "sentence_transformers",
+    "chunk_sizes": [
+      200,
+      300,
+      500,
+      1000
+    ],
+    "overlaps": [
+      0,
+      15,
+      50,
+      100
+    ],
+    "top_ks": [
+      5,
+      10
+    ],
+    "n_samples": 20,
+    "ground_truth_file": "evals/ground_truth.json",
+    "num_ground_truth_samples": 50,
+    "num_documents": 215
+  },
+  "results": [
+    {
+      "hit_rate": 1.0,
+      "mrr": 1.0,
+      "num_tokens": 984.16,
+      "score": 1.008015349045618,
+      "chunk_size": 200,
+      "overlap": 0,
+      "top_k": 10,
+      "search_type": "sentence_transformers"
+    },
+    {
+      "hit_rate": 0.98,
+      "mrr": 0.97,
+      "num_tokens": 1113.82,
+      "score": 0.9100068164328678,
+      "chunk_size": 1000,
+      "overlap": 100,
+      "top_k": 5,
+      "search_type": "sentence_transformers"
+    },
+    {
+      "hit_rate": 1.0,
+      "mrr": 0.985,
+      "num_tokens": 1569.68,
+      "score": 0.798168230598143,
+      "chunk_size": 500,
+      "overlap": 15,
+      "top_k": 10,
+      "search_type": "sentence_transformers"
+    },
+    {
+      "hit_rate": 0.98,
+      "mrr": 0.97,
+      "num_tokens": 2211.56,
+      "score": 0.645807059659736,
+      "chunk_size": 1000,
+      "overlap": 100,
+      "top_k": 10,
+      "search_type": "sentence_transformers"
+    },
+    {
+      "hit_rate": 1.0,
+      "mrr": 0.9866666666666666,
+      "num_tokens": 593.44,
+      "score": 1.2981102883966358,
+      "chunk_size": 300,
+      "overlap": 100,
+      "top_k": 5,
+      "search_type": "sentence_transformers"
+    },
+    {
+      "hit_rate": 1.0,
+      "mrr": 0.9866666666666666,
+      "num_tokens": 1545.0,
+      "score": 0.8045179867091297,
+      "chunk_size": 500,
+      "overlap": 100,
+      "top_k": 10,
+      "search_type": "sentence_transformers"
+    },
+    {
+      "hit_rate": 0.98,
+      "mrr": 0.98,
+      "num_tokens": 2262.22,
+      "score": 0.6385350372829289,
+      "chunk_size": 1000,
+      "overlap": 50,
+      "top_k": 10,
+      "search_type": "sentence_transformers"
+    },
+    {
+      "hit_rate": 0.98,
+      "mrr": 0.98,
+      "num_tokens": 1144.6,
+      "score": 0.8976877124455138,
+      "chunk_size": 1000,
+      "overlap": 15,
+      "top_k": 5,
+      "search_type": "sentence_transformers"
+    },
+    {
+      "hit_rate": 1.0,
+      "mrr": 0.985,
+      "num_tokens": 793.96,
+      "score": 1.1222786174469326,
+      "chunk_size": 500,
+      "overlap": 15,
+      "top_k": 5,
+      "search_type": "sentence_transformers"
+    },
+    {
+      "hit_rate": 1.0,
+      "mrr": 0.9866666666666666,
+      "num_tokens": 1550.1,
+      "score": 0.8031934198552234,
+      "chunk_size": 500,
+      "overlap": 50,
+      "top_k": 10,
+      "search_type": "sentence_transformers"
+    },
+    {
+      "hit_rate": 1.0,
+      "mrr": 0.9866666666666666,
+      "num_tokens": 782.92,
+      "score": 1.1301635758913833,
+      "chunk_size": 500,
+      "overlap": 50,
+      "top_k": 5,
+      "search_type": "sentence_transformers"
+    },
+    {
+      "hit_rate": 1.0,
+      "mrr": 0.9866666666666666,
+      "num_tokens": 783.12,
+      "score": 1.1300192511719458,
+      "chunk_size": 500,
+      "overlap": 100,
+      "top_k": 5,
+      "search_type": "sentence_transformers"
+    },
+    {
+      "hit_rate": 0.98,
+      "mrr": 0.98,
+      "num_tokens": 1162.22,
+      "score": 0.8908569634370392,
+      "chunk_size": 1000,
+      "overlap": 0,
+      "top_k": 5,
+      "search_type": "sentence_transformers"
+    },
+    {
+      "hit_rate": 1.0,
+      "mrr": 1.0,
+      "num_tokens": 493.02,
+      "score": 1.4241893418107472,
+      "chunk_size": 200,
+      "overlap": 50,
+      "top_k": 5,
+      "search_type": "sentence_transformers"
+    },
+    {
+      "hit_rate": 1.0,
+      "mrr": 0.9822222222222223,
+      "num_tokens": 2282.2,
+      "score": 0.6619468951898855,
+      "chunk_size": 1000,
+      "overlap": 0,
+      "top_k": 10,
+      "search_type": "sentence_transformers"
+    },
+    {
+      "hit_rate": 1.0,
+      "mrr": 0.9866666666666666,
+      "num_tokens": 590.96,
+      "score": 1.3008312365757408,
+      "chunk_size": 300,
+      "overlap": 0,
+      "top_k": 5,
+      "search_type": "sentence_transformers"
+    },
+    {
+      "hit_rate": 1.0,
+      "mrr": 0.9822222222222223,
+      "num_tokens": 2300.8,
+      "score": 0.6592658284373623,
+      "chunk_size": 1000,
+      "overlap": 15,
+      "top_k": 10,
+      "search_type": "sentence_transformers"
+    },
+    {
+      "hit_rate": 0.98,
+      "mrr": 0.98,
+      "num_tokens": 1142.6,
+      "score": 0.89847302246574,
+      "chunk_size": 1000,
+      "overlap": 50,
+      "top_k": 5,
+      "search_type": "sentence_transformers"
+    },
+    {
+      "hit_rate": 1.0,
+      "mrr": 1.0,
+      "num_tokens": 491.46,
+      "score": 1.426447892963528,
+      "chunk_size": 200,
+      "overlap": 0,
+      "top_k": 5,
+      "search_type": "sentence_transformers"
+    },
+    {
+      "hit_rate": 1.0,
+      "mrr": 0.9866666666666666,
+      "num_tokens": 1188.4,
+      "score": 0.917315387069111,
+      "chunk_size": 300,
+      "overlap": 15,
+      "top_k": 10,
+      "search_type": "sentence_transformers"
+    }
+  ],
+  "summary": {
+    "num_results": 20,
+    "best_score": 1.426447892963528,
+    "best_hit_rate": 1.0,
+    "best_mrr": 1.0
+  }
+}
