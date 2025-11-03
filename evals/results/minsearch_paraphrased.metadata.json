@@ -1,0 +1,32 @@
+{
+  "timestamp": "2025-11-03T18:03:42.691462",
+  "metadata": {
+    "search_type": "minsearch",
+    "chunk_sizes": [
+      200,
+      300,
+      500,
+      1000
+    ],
+    "overlaps": [
+      0,
+      15,
+      50,
+      100
+    ],
+    "top_ks": [
+      5,
+      10
+    ],
+    "n_samples": 20,
+    "ground_truth_file": "evals/ground_truth_paraphrased.json",
+    "num_ground_truth_samples": 50,
+    "num_documents": 215
+  },
+  "summary": {
+    "num_results": 20,
+    "best_score": 1.4000833060605895,
+    "best_hit_rate": 1.0,
+    "best_mrr": 0.9541666666666666
+  }
+}
