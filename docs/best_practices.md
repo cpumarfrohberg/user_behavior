@@ -35,3 +35,38 @@ For chunking parameter optimization:
 - Start with 50 samples (default)
 - Use 20-30 for faster iteration
 - Use 100+ for final validation
+
+## Search Type Selection
+
+### Performance Trade-offs
+
+**SentenceTransformers (Vector Search):**
+- **Pros**: Better semantic understanding, handles synonyms/paraphrasing
+- **Cons**: Much slower (generates embeddings for all documents)
+- **Best for**: Complex queries, semantic similarity, final validation when accuracy is critical
+
+**MinSearch (Text Search):**
+- **Pros**: Much faster, lower computational cost
+- **Cons**: Keyword-based, less semantic understanding
+- **Best for**: Exact matches, technical terms, speed-critical scenarios
+
+### Observations
+
+Based on evaluation results:
+- **Accuracy gap**: SentenceTransformers is only slightly better than MinSearch for keyword-based queries
+- **Speed difference**: SentenceTransformers is significantly slower for grid search
+- **Use case dependent**: Accuracy advantage may not justify speed penalty for simple queries
+
+### Recommendations
+
+**Use MinSearch for:**
+- Initial/fast parameter optimization (faster iteration)
+- Testing when you need quick results
+- Production if accuracy difference is acceptable
+- Keyword-based queries with exact matches
+
+**Use SentenceTransformers for:**
+- Final validation when accuracy is critical
+- Semantic queries that benefit from embeddings
+- Production if the accuracy improvement matters significantly
+- Complex natural language queries with paraphrasing

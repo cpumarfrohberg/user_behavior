@@ -1,0 +1,202 @@
+[
+  {
+    "question": "What is better than top-posting and bottom-posting?",
+    "source": "question_37818"
+  },
+  {
+    "question": "Solutions for dealing with really bad user entering wrong data?",
+    "source": "question_2324"
+  },
+  {
+    "question": "What are the pros and cons of skeuomorphic design in payment transactions?",
+    "source": "question_33411"
+  },
+  {
+    "question": "Are websites and interactions designed to build or skip levels of trust?",
+    "source": "question_91353"
+  },
+  {
+    "question": "How do you give your user options without overloading them?",
+    "source": "question_35936"
+  },
+  {
+    "question": "Consistent UI experience",
+    "source": "question_6576"
+  },
+  {
+    "question": "Usability and security for user access and password handling in a web application?",
+    "source": "question_1986"
+  },
+  {
+    "question": "What&#39;s a UX-friendly way to inconvenience a user into action e.g. prompt for payment",
+    "source": "question_94391"
+  },
+  {
+    "question": "Keyboard shortcut keys for Tabs?",
+    "source": "question_99161"
+  },
+  {
+    "question": "&quot;Typocaptcha&quot; - an alternative to CAPTCHA?",
+    "source": "question_79329"
+  },
+  {
+    "question": "Is my gender selection sexist?",
+    "source": "question_90123"
+  },
+  {
+    "question": "Making a Streak Visualization More Intuitive",
+    "source": "question_76312"
+  },
+  {
+    "question": "Best practices for UI that introduces new users",
+    "source": "question_53850"
+  },
+  {
+    "question": "Save, Favorite or Star?",
+    "source": "question_38356"
+  },
+  {
+    "question": "Online Store - Should size comes first with color or vice versa?",
+    "source": "question_82658"
+  },
+  {
+    "question": "What is the best way to inspire users to choose strong password?",
+    "source": "question_16433"
+  },
+  {
+    "question": "How do I encourage users to supply information that might not be available, if it is available?",
+    "source": "question_93243"
+  },
+  {
+    "question": "What is the optimal load time for a website before users abandon a mobile application or website?",
+    "source": "question_55700"
+  },
+  {
+    "question": "Deleting dependent records from a table/list",
+    "source": "question_36830"
+  },
+  {
+    "question": "Do people actually use tooltips?",
+    "source": "question_35468"
+  },
+  {
+    "question": "Do users behave differently to interactive lo-fi wireframes compared to hi-fi mockups in user testing sessions",
+    "source": "question_101796"
+  },
+  {
+    "question": "Why do users click randomly and rapidly when an application hangs?",
+    "source": "question_39413"
+  },
+  {
+    "question": "Why does the cursor type vary?",
+    "source": "question_100130"
+  },
+  {
+    "question": "If text is editable, how important is to show it (appearance wise) inside a text box?",
+    "source": "question_54572"
+  },
+  {
+    "question": "Getting the real name of an user",
+    "source": "question_104262"
+  },
+  {
+    "question": "When is it better to use &quot;You&quot; versus using the user&#39;s name?",
+    "source": "question_82327"
+  },
+  {
+    "question": "When offering options, at which position in a sentence should be the desirable one?",
+    "source": "question_37760"
+  },
+  {
+    "question": "Most useful survey questions for user research?",
+    "source": "question_26451"
+  },
+  {
+    "question": "Is there research on whether users know how to open a link in a new tab?",
+    "source": "question_76179"
+  },
+  {
+    "question": "Best way to prevent a user from selecting None/Others before reading all available options",
+    "source": "question_107736"
+  },
+  {
+    "question": "User behavior that caught you off guard?",
+    "source": "question_1719"
+  },
+  {
+    "question": "How do users expect dropdown navigation to work?",
+    "source": "question_8909"
+  },
+  {
+    "question": "How do I measure a user&#39;s seriousness while filling an online form?",
+    "source": "question_95137"
+  },
+  {
+    "question": "Confusing checkboxes and radio buttons",
+    "source": "question_112128"
+  },
+  {
+    "question": "How long should a toast message with &#39;undo&#39; appear?",
+    "source": "question_116634"
+  },
+  {
+    "question": "Deliberately annoying users to discourage certain behaviour. Is this a bad idea?",
+    "source": "question_28637"
+  },
+  {
+    "question": "Which is easier to use: List of people sorted by FirstName, LastName or LastName, FirstName?",
+    "source": "question_36088"
+  },
+  {
+    "question": "Is database too technical a term for user?",
+    "source": "question_34107"
+  },
+  {
+    "question": "How to prevent users using your app while driving?",
+    "source": "question_57549"
+  },
+  {
+    "question": "Should tabs changes in a web app be part of the browser history?",
+    "source": "question_13300"
+  },
+  {
+    "question": "Unit of measure and Quantity in Purchase Orders",
+    "source": "question_15757"
+  },
+  {
+    "question": "Fling cells in table view",
+    "source": "question_49505"
+  },
+  {
+    "question": "What&#39;s better for invitation emails: a temporary password or a one-time login url?",
+    "source": "question_37334"
+  },
+  {
+    "question": "Multi shapes buttons damage User Experience / User Interface?",
+    "source": "question_76787"
+  },
+  {
+    "question": "What is the best way to hide a Honeypot Captcha?",
+    "source": "question_52916"
+  },
+  {
+    "question": "Is scroll within a card good or bad? (In desktop)",
+    "source": "question_102831"
+  },
+  {
+    "question": "Should we ask for name on card even though it&#39;s not required for credit card payments?",
+    "source": "question_31006"
+  },
+  {
+    "question": "How to display gamification progress when 100% completion of a task might not be possible(or desirable in some cases?",
+    "source": "question_89723"
+  },
+  {
+    "question": "What is the best way to motivate users to participate in completing tedious tasks?",
+    "source": "question_22650"
+  },
+  {
+    "question": "What is the best way to end a call between two parties (timer involved) in a non-disruptive way?",
+    "source": "question_96447"
+  }
+]

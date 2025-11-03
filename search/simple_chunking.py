@@ -3,6 +3,7 @@ import json
 import random
 from typing import Any
 
+import numpy as np
 import tiktoken
 
 from config import (
@@ -175,7 +176,18 @@ def _calculate_num_tokens(
         # Fallback encoding if model not found
         encoder = tiktoken.get_encoding(fallback_str)
 
-    rs_json = json.dumps(search_results)
+    # Remove non-serializable fields (like numpy arrays/embeddings) before JSON serialization
+    serializable_results = []
+    for result in search_results:
+        serializable_result = {}
+        for k, v in result.items():
+            # Skip numpy arrays and embeddings which aren't JSON serializable
+            if k == "_embedding" or isinstance(v, np.ndarray):
+                continue
+            serializable_result[k] = v
+        serializable_results.append(serializable_result)
+
+    rs_json = json.dumps(serializable_results)
     return len(encoder.encode(rs_json))
 
 
@@ -284,6 +296,7 @@ def evaluate_chunking_params(
         "chunk_size": chunk_size,
         "overlap": overlap,
         "top_k": top_k,
+        "search_type": str(search_type),
     }
 
 
