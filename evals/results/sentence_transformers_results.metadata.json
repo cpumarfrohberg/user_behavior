@@ -1,0 +1,32 @@
+{
+  "timestamp": "2025-11-03T06:34:45.483645",
+  "metadata": {
+    "search_type": "sentence_transformers",
+    "chunk_sizes": [
+      200,
+      300,
+      500,
+      1000
+    ],
+    "overlaps": [
+      0,
+      15,
+      50,
+      100
+    ],
+    "top_ks": [
+      5,
+      10
+    ],
+    "n_samples": 20,
+    "ground_truth_file": "evals/ground_truth.json",
+    "num_ground_truth_samples": 50,
+    "num_documents": 215
+  },
+  "summary": {
+    "num_results": 20,
+    "best_score": 1.426447892963528,
+    "best_hit_rate": 1.0,
+    "best_mrr": 1.0
+  }
+}
