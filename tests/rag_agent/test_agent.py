@@ -19,14 +19,14 @@ async def test_agent_initialization(initialized_agent):
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.timeout(120)  # 2 minute timeout for LLM calls
-async def test_agent_makes_2_3_searches(initialized_agent):
-    """Test agent makes 2-3 tool calls (within expected range)"""
+async def test_agent_makes_1_2_searches(initialized_agent):
+    """Test agent makes 1-2 tool calls (simplified for speed)"""
     question = "What are common user frustration patterns?"
 
     answer, tool_calls = await initialized_agent.query(question)
 
-    # Verify tool call count (2-3 searches for small dataset)
-    assert 2 <= len(tool_calls) <= 3, f"Expected 2-3 tool calls, got {len(tool_calls)}"
+    # Verify tool call count (1-2 searches for speed optimization)
+    assert 1 <= len(tool_calls) <= 2, f"Expected 1-2 tool calls, got {len(tool_calls)}"
 
     # Verify all calls are search_documents
     assert all(
@@ -38,13 +38,13 @@ async def test_agent_makes_2_3_searches(initialized_agent):
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.timeout(120)  # 2 minute timeout for LLM calls
-async def test_agent_not_more_than_3_searches(initialized_agent):
-    """Test agent doesn't make excessive searches"""
+async def test_agent_not_more_than_2_searches(initialized_agent):
+    """Test agent doesn't make excessive searches (speed optimization)"""
     question = "examples of incorrect LLM responses"
 
     answer, tool_calls = await initialized_agent.query(question)
 
-    assert len(tool_calls) <= 3, f"Expected at most 3 tool calls, got {len(tool_calls)}"
+    assert len(tool_calls) <= 2, f"Expected at most 2 tool calls, got {len(tool_calls)}"
 
 
 @pytest.mark.asyncio

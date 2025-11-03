@@ -74,22 +74,24 @@ class DataType(StrEnum):
     RAG_INDEX = "rag_index"
 
 
-DEFAULT_RAG_MODEL = ModelType.LLAMA3_2_1B  # Using llama3.2:1b for RAG (fastest model with tool support, sufficient with good retrieval)
+DEFAULT_RAG_MODEL = ModelType.LLAMA3_2_3B  # Using llama3.2:3b for RAG (better quality, supports tools, sufficient with good retrieval)
 DEFAULT_JUDGE_MODEL = (
     ModelType.PHI3_MINI
 )  # Using phi3:mini for Judge (strong reasoning, better for structured evaluation)
 DEFAULT_SEARCH_TYPE = SearchType.SENTENCE_TRANSFORMERS
 DEFAULT_SENTENCE_TRANSFORMER_MODEL = SentenceTransformerModel.ALL_MINILM_L6_V2
-DEFAULT_CHUNK_SIZE = 300
-DEFAULT_CHUNK_OVERLAP = 15
+DEFAULT_CHUNK_SIZE = (
+    500  # Fewer chunks for speed (score: 1.157, tokens: 747.66, still perfect accuracy)
+)
+DEFAULT_CHUNK_OVERLAP = 0  # No overlap = faster chunking, fewer chunks
 DEFAULT_CONTENT_FIELD = "content"
-DEFAULT_MAX_CONTEXT_LENGTH = 1000
+DEFAULT_MAX_CONTEXT_LENGTH = 800  # Reduced for speed (was 1000)
 
 # LLM generation parameters
 DEFAULT_TEMPERATURE = 0.3  # Lower temperature for more focused, deterministic responses
 DEFAULT_RAG_TEMPERATURE = 0.3  # Temperature for RAG Agent (focused answers)
 DEFAULT_JUDGE_TEMPERATURE = 0.1  # Lower temperature for Judge (consistent validation)
-DEFAULT_MAX_TOKENS = 1000  # Maximum tokens to generate per response
+DEFAULT_MAX_TOKENS = 500  # Reduced for speed - prioritize quick responses (was 1000)
 
 DEFAULT_NUM_RESULTS = 1
 

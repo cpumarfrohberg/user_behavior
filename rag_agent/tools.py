@@ -22,7 +22,7 @@ def initialize_search_index(search_index) -> None:
     _search_index = search_index
 
 
-def search_documents(query: str, num_results: int = 5) -> List[SearchResult]:
+def search_documents(query: str, num_results: int = 2) -> List[SearchResult]:
     """
     Search the document index for relevant content.
 

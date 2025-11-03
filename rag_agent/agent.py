@@ -102,13 +102,18 @@ class RAGAgent:
             f"Using Ollama model: {self.config.ollama_model} at {ollama_base_url}"
         )
 
-        # Create agent
+        # Create agent with max_tokens limit for speed
+        from pydantic_ai import ModelSettings
+
+        from config import DEFAULT_MAX_TOKENS
+
         self.agent = Agent(
             name="rag_agent",
             model=model,
             tools=[search_documents],
             instructions=instructions,
             output_type=RAGAnswer,
+            model_settings=ModelSettings(max_tokens=DEFAULT_MAX_TOKENS),
         )
 
         logger.info("RAG Agent initialized successfully")
