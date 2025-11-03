@@ -4,6 +4,7 @@ from typing import Any
 
 from config import (
     DEFAULT_NUM_RESULTS,
+    DEFAULT_SEARCH_TYPE,
     DEFAULT_SENTENCE_TRANSFORMER_MODEL,
     SearchType,
 )
@@ -18,7 +19,7 @@ class SearchIndex:
 
     def __init__(
         self,
-        search_type: str = SearchType.MINSEARCH,
+        search_type: str = DEFAULT_SEARCH_TYPE,
         model_name: str = DEFAULT_SENTENCE_TRANSFORMER_MODEL,
         text_fields: list[str] | None = None,
     ):

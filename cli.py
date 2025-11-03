@@ -38,10 +38,10 @@ app = typer.Typer()
 def ask(
     question: str = typer.Argument(..., help="Question to ask"),
     search_type: str = typer.Option(
-        "minsearch",
+        str(DEFAULT_SEARCH_TYPE),
         "--search-type",
         "-s",
-        help="Search type: 'minsearch' (MinSearch) or 'sentence_transformers' (SentenceTransformer)",
+        help="Search type: 'minsearch' (MinSearch) or 'sentence_transformers' (SentenceTransformer). Default: sentence_transformers",
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed output"),
 ):
@@ -57,8 +57,11 @@ def ask(
         # Set search type based on parameter
         if search_type.lower() == "sentence_transformers":
             config.search_type = SearchType.SENTENCE_TRANSFORMERS
-        else:
+        elif search_type.lower() == "minsearch":
             config.search_type = SearchType.MINSEARCH
+        else:
+            # Default to config default if invalid value provided
+            config.search_type = DEFAULT_SEARCH_TYPE
 
         if verbose:
             typer.echo(f"🔍 Using search type: {config.search_type}")
