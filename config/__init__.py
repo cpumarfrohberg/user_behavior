@@ -11,11 +11,10 @@ load_dotenv(override=True)  # Override environment variables with .env values
 
 
 class ModelType(StrEnum):
-    PHI3_MINI = (
-        "phi3:mini"  # For Judge (strong reasoning, better for structured evaluation)
-    )
+    PHI3_MINI = "phi3:mini"  # For Judge (strong reasoning, better for structured evaluation) - NOTE: Does not support tools
     LLAMA3_1_8B = "llama3.1:8b"  # Larger model (8B, needs more memory)
-    LLAMA3_2_3B = "llama3.2:3b"  # For RAG Agent (faster generation, sufficient with good retrieval)
+    LLAMA3_2_3B = "llama3.2:3b"  # For RAG Agent (faster generation, sufficient with good retrieval) - Supports tools
+    LLAMA3_2_1B = "llama3.2:1b"  # Smallest model (1B, fastest) - Supports tools
 
 
 class SearchType(StrEnum):
@@ -75,9 +74,7 @@ class DataType(StrEnum):
     RAG_INDEX = "rag_index"
 
 
-DEFAULT_RAG_MODEL = (
-    ModelType.LLAMA3_2_3B
-)  # Using llama3.2:3b for RAG (faster generation, sufficient with good retrieval)
+DEFAULT_RAG_MODEL = ModelType.LLAMA3_2_1B  # Using llama3.2:1b for RAG (fastest model with tool support, sufficient with good retrieval)
 DEFAULT_JUDGE_MODEL = (
     ModelType.PHI3_MINI
 )  # Using phi3:mini for Judge (strong reasoning, better for structured evaluation)

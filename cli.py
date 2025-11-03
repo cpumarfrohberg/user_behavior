@@ -54,7 +54,7 @@ def ask(
 
         # Create RAG with correct collection name and search type
         config = RAGConfig()
-        config.collection = "stackexchange_content"  # Use the correct collection name
+        config.collection = "questions"  # Use the correct collection name
 
         # Set search type based on parameter
         if search_type.lower() == "sentence_transformers":
@@ -98,6 +98,88 @@ def ask(
 
     except Exception as e:
         typer.echo(f"❌ Unexpected Error: {str(e)}", err=True)
+        raise typer.Exit(1)
+
+
+@app.command()
+def agent_ask(
+    question: str = typer.Argument(..., help="Question to ask the agent"),
+    search_type: str = typer.Option(
+        str(DEFAULT_SEARCH_TYPE),
+        "--search-type",
+        "-s",
+        help="Search type: 'minsearch' or 'sentence_transformers'",
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show tool calls"),
+):
+    """Ask a question using the RAG agent (makes multiple searches)"""
+    import asyncio
+
+    from rag_agent.agent import RAGAgent
+    from source.text_rag import RAGConfig
+
+    try:
+        if verbose:
+            typer.echo("📥 Initializing RAG Agent...")
+
+        # Create config
+        config = RAGConfig()
+        config.collection = "questions"  # Use the correct collection name
+
+        # Set search type based on parameter
+        if search_type.lower() == "sentence_transformers":
+            config.search_type = SearchType.SENTENCE_TRANSFORMERS
+        elif search_type.lower() == "minsearch":
+            config.search_type = SearchType.MINSEARCH
+        else:
+            config.search_type = DEFAULT_SEARCH_TYPE
+
+        if verbose:
+            typer.echo(f"🔍 Using search type: {config.search_type}")
+
+        # Initialize agent
+        agent = RAGAgent(config)
+        agent.initialize()
+
+        if verbose:
+            typer.echo("✅ Agent initialized successfully!")
+            typer.echo("🤖 Running agent query...")
+        else:
+            typer.echo("🤖 Running agent query (this may take a minute)...")
+
+        async def run_query():
+            try:
+                answer, tool_calls = await agent.query(question)
+            except Exception as e:
+                typer.echo(f"❌ Error during agent query: {str(e)}", err=True)
+                if verbose:
+                    import traceback
+
+                    typer.echo(traceback.format_exc(), err=True)
+                raise
+
+            typer.echo(f"\n❓ Question: {question}")
+            typer.echo(f"💡 Answer: {answer.answer}")
+            typer.echo(f"🎯 Confidence: {answer.confidence:.2f}")
+            typer.echo(f"🔍 Tool Calls: {len(tool_calls)}")
+
+            if verbose:
+                typer.echo("\n📋 Tool Call History:")
+                for i, call in enumerate(tool_calls, 1):
+                    typer.echo(f"  {i}. {call['tool_name']}: {call['args']}")
+
+            if answer.sources_used:
+                typer.echo("\n📚 Sources:")
+                for i, source in enumerate(answer.sources_used[:10], 1):
+                    typer.echo(f"  {i}. {source}")
+
+            if verbose and answer.reasoning:
+                typer.echo(f"\n💭 Reasoning: {answer.reasoning}")
+
+        asyncio.run(run_query())
+
+    except Exception as e:
+        typer.echo(f"❌ Error: {str(e)}", err=True)
         raise typer.Exit(1)
 
 
