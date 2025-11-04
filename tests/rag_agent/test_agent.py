@@ -1,9 +1,5 @@
-"""Tests for RAG Agent with real Ollama and MongoDB"""
-
 import pytest
-import pytest_asyncio
 
-from rag_agent.agent import RAGAgent
 from source.models import RAGAnswer
 
 

@@ -1,5 +1,3 @@
-"""Tests for Neo4j ETL injection functions"""
-
 from unittest.mock import MagicMock
 
 import pytest
@@ -11,7 +9,6 @@ from neo4j_etl.src.inject import (
     set_uniqueness_constraints,
 )
 
-# Constants
 TEST_USER_ID = 123
 TEST_DISPLAY_NAME = "John Doe"
 TEST_REPUTATION = 1000
@@ -114,7 +111,6 @@ def test_set_uniqueness_constraints(mock_tx):
     ids=["user", "question", "answer", "comment", "tag"],
 )
 def test_set_uniqueness_constraints_all_labels(mock_tx, node_label, expected_property):
-    """Test set_uniqueness_constraints for all node labels"""
     set_uniqueness_constraints(mock_tx, node_label)
 
     assert mock_tx.run.called
@@ -131,7 +127,6 @@ def test_set_uniqueness_constraints_invalid_label(mock_tx):
 
 
 def test_process_batch_creates_nodes(mock_tx, batch_data):
-    """Test process_batch creates all node types"""
     process_batch(mock_tx, batch_data)
 
     # Should call tx.run multiple times (once per node type + relationships)
@@ -148,7 +143,6 @@ def test_process_batch_creates_nodes(mock_tx, batch_data):
 
 
 def test_process_batch_creates_relationships(mock_tx, batch_data):
-    """Test process_batch creates relationships"""
     process_batch(mock_tx, batch_data)
 
     call_args_list = [call[0][0] for call in mock_tx.run.call_args_list]
@@ -164,7 +158,6 @@ def test_process_batch_creates_relationships(mock_tx, batch_data):
 
 
 def test_process_batch_empty_data(mock_tx):
-    """Test process_batch handles empty batch data"""
     empty_batch = {
         "users": [],
         "tags": [],
@@ -180,7 +173,6 @@ def test_process_batch_empty_data(mock_tx):
 
 
 def test_process_batch_missing_keys(mock_tx):
-    """Test process_batch handles missing keys in batch_data"""
     partial_batch = {
         "questions": [
             {
