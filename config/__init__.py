@@ -91,7 +91,9 @@ DEFAULT_MAX_CONTEXT_LENGTH = 800  # Reduced for speed (was 1000)
 DEFAULT_TEMPERATURE = 0.3  # Lower temperature for more focused, deterministic responses
 DEFAULT_RAG_TEMPERATURE = 0.3  # Temperature for RAG Agent (focused answers)
 DEFAULT_JUDGE_TEMPERATURE = 0.1  # Lower temperature for Judge (consistent validation)
-DEFAULT_MAX_TOKENS = 500  # Reduced for speed - prioritize quick responses (was 1000)
+DEFAULT_MAX_TOKENS = (
+    1000  # Increased for quantized models that need more tokens for JSON output
+)
 
 DEFAULT_NUM_RESULTS = 1
 

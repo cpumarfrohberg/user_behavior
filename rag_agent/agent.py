@@ -6,7 +6,14 @@ import logging
 from typing import Any, List
 
 from pydantic_ai import Agent
-from pydantic_ai.messages import FunctionToolCallEvent
+from pydantic_ai.messages import (
+    FinalResultEvent,
+    FunctionToolCallEvent,
+    FunctionToolResultEvent,
+    PartDeltaEvent,
+    PartStartEvent,
+    TextPartDelta,
+)
 
 from config.instructions import InstructionsConfig, InstructionType
 from rag_agent.tools import initialize_search_index, search_documents
@@ -17,15 +24,23 @@ logger = logging.getLogger(__name__)
 
 # Store tool calls for evaluation
 _tool_calls: List[dict] = []
+# Store accumulated text output for debugging
+_accumulated_text: str = ""
 
 
 async def track_tool_calls(ctx: Any, event: Any) -> None:
-    """Event handler to track all tool calls for evaluation"""
+    """Event handler to track all tool calls and capture model output text"""
+    global _accumulated_text, _tool_calls
+
     # Handle nested async streams
     if hasattr(event, "__aiter__"):
         async for sub in event:
             await track_tool_calls(ctx, sub)
         return
+
+    # Log all event types for debugging
+    event_type = type(event).__name__
+    logger.debug(f"📨 Event received: {event_type}")
 
     # Track function tool calls
     if isinstance(event, FunctionToolCallEvent):
@@ -36,7 +51,7 @@ async def track_tool_calls(ctx: Any, event: Any) -> None:
         _tool_calls.append(tool_call)
         tool_num = len(_tool_calls)
 
-        # Parse args to extract query for display (args is JSON string in pydantic-ai)
+        # Parse args to extract query for display
         try:
             args_dict = (
                 json.loads(event.part.args)
@@ -57,6 +72,72 @@ async def track_tool_calls(ctx: Any, event: Any) -> None:
         logger.info(
             f"🔧 Tool Call #{tool_num}: {event.part.tool_name} with args: {event.part.args}"
         )
+
+    # Accumulate text from delta events - this captures the raw model output
+    if isinstance(event, PartDeltaEvent):
+        # Track accumulation state before processing
+        text_before = len(_accumulated_text)
+        logger.debug(
+            f"PartDeltaEvent received, delta type: {type(event.delta) if hasattr(event, 'delta') else 'no delta attr'}, accumulated so far: {text_before} chars"
+        )
+        try:
+            delta = event.delta
+
+            # TextPartDelta - try multiple possible attribute names
+            if isinstance(delta, TextPartDelta):
+                # Try common attribute names for text content
+                text_chunk = None
+                for attr in ["text_delta", "text", "content_delta", "content", "delta"]:
+                    if hasattr(delta, attr):
+                        value = getattr(delta, attr)
+                        if value:
+                            text_chunk = value
+                            logger.debug(
+                                f"Found text in TextPartDelta.{attr}: {len(str(value))} chars, value: {repr(str(value)[:50])}"
+                            )
+                            break
+
+                if text_chunk:
+                    _accumulated_text += str(text_chunk)
+                    text_after = len(_accumulated_text)
+                    logger.debug(
+                        f"✓ Accumulated: {text_before} → {text_after} chars (+{text_after - text_before})"
+                    )
+            # Fallback: try direct string conversion or other attributes
+            elif isinstance(delta, str):
+                _accumulated_text += delta
+                text_after = len(_accumulated_text)
+                logger.debug(
+                    f"✓ Captured string delta: {len(delta)} chars, accumulated: {text_before} → {text_after} chars, value: {repr(delta[:50])}"
+                )
+            else:
+                # Try common text attributes on any delta type
+                for attr in ["text", "content", "data", "value"]:
+                    if hasattr(delta, attr):
+                        value = getattr(delta, attr)
+                        if value and isinstance(value, str):
+                            _accumulated_text += value
+                            text_after = len(_accumulated_text)
+                            logger.debug(
+                                f"✓ Captured text from delta.{attr}: {len(value)} chars, accumulated: {text_before} → {text_after} chars, value: {repr(value[:50])}"
+                            )
+                            break
+        except Exception as e:
+            logger.debug(
+                f"Error extracting text from delta: {e}, delta type: {type(event.delta) if hasattr(event, 'delta') else 'N/A'}"
+            )
+
+    # Capture output from final result
+    if isinstance(event, FinalResultEvent):
+        try:
+            if hasattr(event, "result") and hasattr(event.result, "output"):
+                output = event.result.output
+                if hasattr(output, "data"):
+                    _accumulated_text += str(output.data)
+                elif hasattr(output, "text"):
+                    _accumulated_text += str(output.text)
+        except Exception as e:
+            logger.debug(f"Error extracting text from final result: {e}")
 
 
 class RAGAgent:
@@ -128,8 +209,10 @@ class RAGAgent:
         Returns:
             (answer, tool_calls) - Answer object and list of tool calls for evaluation
         """
-        global _tool_calls
+        # Declare global variables at the top of the method
+        global _tool_calls, _accumulated_text
         _tool_calls = []  # Reset for each query
+        _accumulated_text = ""  # Reset accumulated text
 
         if self.agent is None:
             raise RuntimeError("Agent not initialized. Call initialize() first.")
@@ -138,7 +221,6 @@ class RAGAgent:
         print("🤖 Agent is processing your question (this may take 30-60 seconds)...")
 
         # Run agent with event tracking
-        result = None
         try:
             result = await self.agent.run(
                 question,
@@ -147,31 +229,132 @@ class RAGAgent:
         except Exception as e:
             logger.error(f"Error during agent.run(): {e}")
             logger.error(f"Error type: {type(e).__name__}")
-            logger.error(f"Error details: {str(e)}")
 
-            # Try to get more details about validation errors
-            if hasattr(e, "args") and e.args:
-                logger.error(f"Error args: {e.args}")
-            if hasattr(e, "__cause__") and e.__cause__:
-                logger.error(f"Caused by: {e.__cause__}")
+            # If we didn't capture text from events, try to extract from exception
+            if not _accumulated_text:
+                logger.debug("Attempting to extract model output from exception...")
 
-            # Log the raw result if available (only if result was created)
-            if result is not None:
+                # Try to extract from exception cause (ToolRetryError)
+                if hasattr(e, "__cause__") and e.__cause__:
+                    cause = e.__cause__
+
+                    # Check for tool_retry with model_response
+                    if hasattr(cause, "tool_retry"):
+                        tool_retry = cause.tool_retry
+                        if hasattr(tool_retry, "model_response"):
+                            try:
+                                # model_response might be callable or a property
+                                model_response = (
+                                    tool_retry.model_response()
+                                    if callable(tool_retry.model_response)
+                                    else tool_retry.model_response
+                                )
+
+                                # Extract text from model_response parts
+                                if hasattr(model_response, "parts"):
+                                    for part in model_response.parts:
+                                        if hasattr(part, "text") and part.text:
+                                            text = str(part.text)
+                                            if (
+                                                text
+                                                and text
+                                                != "Please include your response in a tool call."
+                                            ):
+                                                _accumulated_text = text
+                                                break
+                                        elif hasattr(part, "content") and part.content:
+                                            content = str(part.content)
+                                            if (
+                                                content
+                                                and content
+                                                != "Please include your response in a tool call."
+                                            ):
+                                                _accumulated_text = content
+                                                break
+
+                                # Try direct attributes
+                                if not _accumulated_text:
+                                    for attr in ["text", "content"]:
+                                        if hasattr(model_response, attr):
+                                            value = getattr(model_response, attr)
+                                            if (
+                                                value
+                                                and str(value)
+                                                != "Please include your response in a tool call."
+                                            ):
+                                                _accumulated_text = str(value)
+                                                break
+                            except Exception as extract_err:
+                                logger.debug(
+                                    f"Could not extract from model_response: {extract_err}"
+                                )
+
+                    # Try to extract from last_assistant_message
+                    if not _accumulated_text and hasattr(
+                        cause, "last_assistant_message"
+                    ):
+                        msg = cause.last_assistant_message
+                        if msg and hasattr(msg, "parts"):
+                            for part in msg.parts:
+                                for attr in ["text", "content"]:
+                                    if hasattr(part, attr):
+                                        value = getattr(part, attr)
+                                        if (
+                                            value
+                                            and str(value)
+                                            != "Please include your response in a tool call."
+                                        ):
+                                            _accumulated_text = str(value)
+                                            break
+                                if _accumulated_text:
+                                    break
+
+            # Log captured output for debugging
+            if _accumulated_text:
+                logger.error(
+                    f"📝 Captured model output ({len(_accumulated_text)} chars): {_accumulated_text[:500]}..."
+                )
+                print(
+                    f"📝 DEBUG: Captured {len(_accumulated_text)} chars of model output"
+                )
+                print(f"📝 First 500 chars: {_accumulated_text[:500]}")
+
+                # Try to extract and validate JSON
+                text_to_parse = _accumulated_text.strip()
+
+                # Extract from markdown code blocks if present
+                if text_to_parse.startswith("```"):
+                    import re
+
+                    json_match = re.search(
+                        r"```(?:json)?\s*(.*?)\s*```", text_to_parse, re.DOTALL
+                    )
+                    if json_match:
+                        text_to_parse = json_match.group(1).strip()
+
+                # Try to parse and validate JSON
                 try:
-                    # Try to get partial result if available
-                    if hasattr(result, "output"):
-                        logger.error(f"Partial output: {result.output}")
-                    if hasattr(result, "data"):
-                        logger.error(f"Result data: {result.data}")
-                except Exception as log_err:
-                    logger.error(f"Could not log result details: {log_err}")
+                    parsed = json.loads(text_to_parse)
+                    logger.error("📝 JSON is valid. Checking schema...")
+
+                    if isinstance(parsed, dict):
+                        required_fields = ["answer", "confidence", "sources_used"]
+                        missing = [f for f in required_fields if f not in parsed]
+                        if missing:
+                            logger.error(f"📝 Missing fields: {missing}")
+                        else:
+                            logger.error(
+                                f"📝 Schema validation: answer={type(parsed.get('answer'))}, confidence={type(parsed.get('confidence'))}, sources_used={type(parsed.get('sources_used'))}"
+                            )
+                except json.JSONDecodeError as je:
+                    logger.error(f"📝 JSON parse error: {je.msg} at position {je.pos}")
             else:
                 logger.error(
-                    "No result object available (exception occurred before completion)"
+                    "📝 No model output captured - event handler may not be receiving delta events"
                 )
+                print("📝 DEBUG: No model output was captured from events")
 
             print(f"❌ Error during agent execution: {e}")
-            print("📋 Check logs for detailed error information")
             raise
 
         logger.info(f"Agent completed query. Tool calls: {len(_tool_calls)}")

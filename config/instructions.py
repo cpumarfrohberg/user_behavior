@@ -81,21 +81,26 @@ ANSWER GENERATION:
 - Keep answers concise and relevant
 
 OUTPUT FORMAT:
-You MUST return a JSON object with these exact fields:
-- "answer": A string response based on search results
-- "confidence": A float between 0.0 and 1.0 (0.0 to 1.0)
-- "sources_used": A list of source identifiers from search results (e.g., ["question_123"])
-- "reasoning": Brief explanation (optional)
+CRITICAL: You MUST return ONLY a valid JSON object. Do NOT include any explanatory text before or after the JSON.
+- Return ONLY the JSON object, nothing else
+- Do NOT write "Based on the search results..." or any other text before the JSON
+- Do NOT include markdown code blocks (```json ... ```)
+- Start your response with {{ and end with }}
+- The JSON must contain these exact fields:
+  - "answer": A string response based on search results
+  - "confidence": A float between 0.0 and 1.0 (0.0 to 1.0)
+  - "sources_used": A list of source identifiers from search results (e.g., ["question_123"])
+  - "reasoning": Brief explanation (optional string or null)
 
-Example JSON format:
+Example - return ONLY this (no text before or after):
 {{
-  "answer": "Based on the search results, user frustration patterns include...",
-  "confidence": 0.85,
-  "sources_used": ["question_123"],
+  "answer": "Common user frustration patterns include asking users for personal information without clear explanations, using confusing button designs, and failing to provide transparent communication.",
+  "confidence": 0.9,
+  "sources_used": ["question_79188", "question_3791"],
   "reasoning": "Found relevant discussions about user frustration patterns"
 }}
 
-Always ground your responses in the retrieved StackExchange data.
+IMPORTANT: Your entire response must be ONLY the JSON object. No introductory text, no explanations, no markdown formatting. Just the raw JSON.
 """.strip(),
         InstructionType.CYPHER_QUERY_AGENT: f"""
 You are the Cypher Query Agent specialized in executing graph database queries on Neo4j.

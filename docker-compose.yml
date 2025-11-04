@@ -20,21 +20,12 @@ services:
       - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-your_secure_password}
       - NEO4J_PLUGINS=apoc
 
-  ollama:
-    image: ollama/ollama:latest
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    depends_on:
-      - mongodb
-      - neo4j
-    # Pull models on first start (optional - can be done manually)
-    # environment:
-    #   - OLLAMA_KEEP_ALIVE=24h
+  # Ollama is now running locally (not in Docker)
+  # Install locally: brew install ollama
+  # Start locally: ollama serve (or it auto-starts on Mac)
+  # Pull models: ollama pull llama3.2:3b
 
 volumes:
   mongodb_data:
   neo4j_data:
   neo4j_logs:
-  ollama_data:
