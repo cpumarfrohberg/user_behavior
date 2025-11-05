@@ -1,7 +1,6 @@
 import os
 from enum import StrEnum
 
-import ollama
 from dotenv import load_dotenv
 
 # Import from instructions module (must be after StrEnum import)
@@ -11,10 +10,14 @@ load_dotenv(override=True)  # Override environment variables with .env values
 
 
 class ModelType(StrEnum):
-    PHI3_MINI = "phi3:mini"  # For Judge (strong reasoning, better for structured evaluation) - NOTE: Does not support tools
-    LLAMA3_1_8B = "llama3.1:8b"  # Larger model (8B, needs more memory)
-    LLAMA3_2_3B = "llama3.2:3b"  # For RAG Agent (faster generation, sufficient with good retrieval) - Supports tools
-    LLAMA3_2_1B = "llama3.2:1b"  # Smallest model (1B, fastest) - Supports tools
+    """OpenAI model types for LLM inference"""
+
+    GPT_4O_MINI = (
+        "gpt-4o-mini"  # Default: Good balance of cost and quality, supports tools
+    )
+    GPT_3_5_TURBO = "gpt-3.5-turbo"  # Faster and cheaper, good for simple queries
+    GPT_4O = "gpt-4o"  # Higher quality, better reasoning, more expensive
+    GPT_4 = "gpt-4"  # Legacy GPT-4 model
 
 
 class SearchType(StrEnum):
@@ -74,11 +77,13 @@ class DataType(StrEnum):
     RAG_INDEX = "rag_index"
 
 
-DEFAULT_RAG_MODEL = ModelType.LLAMA3_2_3B  # Using llama3.2:3b for RAG (better quality, supports tools, sufficient with good retrieval)
+DEFAULT_RAG_MODEL = TokenizerModel.GPT_4O_MINI
 DEFAULT_JUDGE_MODEL = (
-    ModelType.PHI3_MINI
-)  # Using phi3:mini for Judge (strong reasoning, better for structured evaluation)
-DEFAULT_SEARCH_TYPE = SearchType.SENTENCE_TRANSFORMERS
+    TokenizerModel.GPT_4O_MINI
+)  # Using gpt-4o-mini for Judge (consistent validation, supports tools)
+DEFAULT_SEARCH_TYPE = (
+    SearchType.MINSEARCH
+)  # Better performance, faster, and more efficient per evaluation results
 DEFAULT_SENTENCE_TRANSFORMER_MODEL = SentenceTransformerModel.ALL_MINILM_L6_V2
 DEFAULT_CHUNK_SIZE = (
     500  # Fewer chunks for speed (score: 1.157, tokens: 747.66, still perfect accuracy)
@@ -139,9 +144,15 @@ MONGODB_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 MONGODB_DB = os.getenv("MONGO_DB_NAME", "stackexchange")
 MONGODB_COLLECTION = os.getenv("MONGO_COLLECTION_NAME", "questions")
 
+# OpenAI Configuration
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_RAG_MODEL = os.getenv("OPENAI_RAG_MODEL", str(DEFAULT_RAG_MODEL))
+OPENAI_JUDGE_MODEL = os.getenv("OPENAI_JUDGE_MODEL", str(DEFAULT_JUDGE_MODEL))
+
+# Deprecated: Ollama configuration (kept for backward compatibility during migration)
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-OLLAMA_RAG_MODEL = os.getenv("OLLAMA_RAG_MODEL", DEFAULT_RAG_MODEL)
-OLLAMA_JUDGE_MODEL = os.getenv("OLLAMA_JUDGE_MODEL", DEFAULT_JUDGE_MODEL)
+OLLAMA_RAG_MODEL = os.getenv("OLLAMA_RAG_MODEL", str(DEFAULT_RAG_MODEL))
+OLLAMA_JUDGE_MODEL = os.getenv("OLLAMA_JUDGE_MODEL", str(DEFAULT_JUDGE_MODEL))
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
@@ -169,6 +180,3 @@ BEHAVIOR_KEYWORDS = [
     "user",
     "usability",
 ]
-
-# Ollama client (shared - model is specified per request)
-ollama_client = ollama.Client(host=OLLAMA_HOST)
