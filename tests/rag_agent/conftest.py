@@ -5,7 +5,7 @@ import pytest_asyncio
 
 from config import SearchType
 from rag_agent.agent import RAGAgent
-from source.text_rag import RAGConfig
+from rag_agent.config import RAGConfig
 
 
 @pytest.fixture

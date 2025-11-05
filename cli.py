@@ -25,13 +25,13 @@ from evals.generate_ground_truth import (
     save_ground_truth,
 )
 from evals.save_results import save_grid_search_results
+from rag_agent.config import RAGConfig
 from search.search_utils import RAGError
 from search.simple_chunking import (
     evaluate_chunking_grid,
     evaluate_chunking_params,
     find_best_chunking_params,
 )
-from source.text_rag import RAGConfig, TextRAG
 
 app = typer.Typer()
 
@@ -47,58 +47,10 @@ def ask(
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed output"),
 ):
-    """Ask a question about user behavior patterns using RAG system"""
-    try:
-        if verbose:
-            typer.echo("📥 Initializing RAG system...")
-
-        # Create RAG with correct collection name and search type
-        config = RAGConfig()
-        config.collection = "questions"  # Use the correct collection name
-
-        # Set search type based on parameter
-        if search_type.lower() == "sentence_transformers":
-            config.search_type = SearchType.SENTENCE_TRANSFORMERS
-        elif search_type.lower() == "minsearch":
-            config.search_type = SearchType.MINSEARCH
-        else:
-            # Default to config default if invalid value provided
-            config.search_type = DEFAULT_SEARCH_TYPE
-
-        if verbose:
-            typer.echo(f"🔍 Using search type: {config.search_type}")
-
-        rag = TextRAG(config)
-
-        # Load documents
-        if verbose:
-            typer.echo("📥 Loading documents from MongoDB...")
-        rag.load_from_mongodb()
-
-        if verbose:
-            typer.echo("✅ Documents loaded successfully!")
-            typer.echo("🔍 Processing query...")
-
-        # Get answer
-        response = rag.query(question)
-
-        # Show result
-        typer.echo(f"\n❓ Question: {question}")
-        typer.echo(f"💡 Answer: {response.answer}")
-        typer.echo(f"🎯 Confidence: {response.confidence:.2f}")
-
-        if verbose and response.sources_used:
-            typer.echo("\n📚 Sources used:")
-            for i, source in enumerate(response.sources_used, 1):
-                typer.echo(f"  {i}. {source}")
-
-    except RAGError as e:
-        typer.echo(f"❌ Error: {str(e)}", err=True)
-        raise typer.Exit(1)
-
-    except Exception as e:
-        typer.echo(f"❌ Unexpected Error: {str(e)}", err=True)
-        raise typer.Exit(1)
+    """DEPRECATED: Use 'agent-ask' instead. This command is no longer supported."""
+    typer.echo("❌ This command has been deprecated.")
+    typer.echo("💡 Use 'agent-ask' instead: uv run ask agent-ask \"your question\"")
+    raise typer.Exit(1)
 
 
 @app.command()
@@ -112,11 +64,10 @@ def agent_ask(
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show tool calls"),
 ):
-    """Ask a question using the RAG agent (makes multiple searches)"""
+    """Ask a question using the RAG agent directly (makes multiple searches)"""
     import asyncio
 
     from rag_agent.agent import RAGAgent
-    from source.text_rag import RAGConfig
 
     try:
         if verbose:
@@ -175,6 +126,92 @@ def agent_ask(
 
             if verbose and answer.reasoning:
                 typer.echo(f"\n💭 Reasoning: {answer.reasoning}")
+
+        asyncio.run(run_query())
+
+    except Exception as e:
+        typer.echo(f"❌ Error: {str(e)}", err=True)
+        raise typer.Exit(1)
+
+
+@app.command()
+def orchestrator_ask(
+    question: str = typer.Argument(..., help="Question to ask"),
+    search_type: str = typer.Option(
+        str(DEFAULT_SEARCH_TYPE),
+        "--search-type",
+        "-s",
+        help="Search type: 'minsearch' or 'sentence_transformers' (for RAG agent)",
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed output"),
+):
+    """Ask a question using the Orchestrator Agent (intelligently routes to RAG or Cypher Query Agent)"""
+    import asyncio
+
+    from orchestrator.agent import OrchestratorAgent
+    from orchestrator.config import OrchestratorConfig
+    from orchestrator.tools import initialize_rag_agent
+
+    try:
+        if verbose:
+            typer.echo("📥 Initializing Orchestrator Agent...")
+
+        # Initialize RAG Agent with config (needed for orchestrator tools)
+        rag_config = RAGConfig()
+        rag_config.collection = "questions"
+
+        # Set search type based on parameter
+        if search_type.lower() == "sentence_transformers":
+            rag_config.search_type = SearchType.SENTENCE_TRANSFORMERS
+        elif search_type.lower() == "minsearch":
+            rag_config.search_type = SearchType.MINSEARCH
+        else:
+            rag_config.search_type = DEFAULT_SEARCH_TYPE
+
+        if verbose:
+            typer.echo(f"🔍 RAG Agent will use search type: {rag_config.search_type}")
+
+        # Initialize RAG Agent for orchestrator to use
+        initialize_rag_agent(rag_config)
+
+        # Create orchestrator config
+        orchestrator_config = OrchestratorConfig()
+
+        if verbose:
+            typer.echo("✅ RAG Agent initialized for orchestrator")
+
+        # Initialize orchestrator
+        orchestrator = OrchestratorAgent(orchestrator_config)
+        orchestrator.initialize()
+
+        if verbose:
+            typer.echo("✅ Orchestrator initialized successfully!")
+        else:
+            typer.echo("🎯 Orchestrator is analyzing your question...")
+
+        async def run_query():
+            try:
+                answer = await orchestrator.query(question)
+            except Exception as e:
+                typer.echo(f"❌ Error during orchestrator query: {str(e)}", err=True)
+                if verbose:
+                    import traceback
+
+                    typer.echo(traceback.format_exc(), err=True)
+                raise
+
+            typer.echo(f"\n❓ Question: {question}")
+            typer.echo(f"💡 Answer: {answer.answer}")
+            typer.echo(f"🎯 Confidence: {answer.confidence:.2f}")
+            typer.echo(f"🤖 Agents Used: {', '.join(answer.agents_used)}")
+
+            if verbose:
+                typer.echo(f"\n💭 Routing Reasoning: {answer.reasoning}")
+
+            if answer.sources_used:
+                typer.echo("\n📚 Sources:")
+                for i, source in enumerate(answer.sources_used[:10], 1):
+                    typer.echo(f"  {i}. {source}")
 
         asyncio.run(run_query())
 

@@ -1,6 +1,6 @@
 import pytest
 
-from source.models import RAGAnswer
+from rag_agent.models import RAGAnswer
 
 
 @pytest.mark.asyncio

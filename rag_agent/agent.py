@@ -6,41 +6,31 @@ import logging
 from typing import Any, List
 
 from pydantic_ai import Agent
-from pydantic_ai.messages import (
-    FinalResultEvent,
-    FunctionToolCallEvent,
-    FunctionToolResultEvent,
-    PartDeltaEvent,
-    PartStartEvent,
-    TextPartDelta,
-)
+from pydantic_ai.messages import FunctionToolCallEvent
+from pymongo import MongoClient
 
 from config.instructions import InstructionsConfig, InstructionType
+from rag_agent.config import RAGConfig
+from rag_agent.models import RAGAnswer
 from rag_agent.tools import initialize_search_index, search_documents
-from source.models import RAGAnswer
-from source.text_rag import RAGConfig, TextRAG
+from search.search_utils import SearchIndex
+from search.simple_chunking import chunk_documents
 
 logger = logging.getLogger(__name__)
 
 # Store tool calls for evaluation
 _tool_calls: List[dict] = []
-# Store accumulated text output for debugging
-_accumulated_text: str = ""
 
 
 async def track_tool_calls(ctx: Any, event: Any) -> None:
-    """Event handler to track all tool calls and capture model output text"""
-    global _accumulated_text, _tool_calls
+    """Event handler to track all tool calls"""
+    global _tool_calls
 
     # Handle nested async streams
     if hasattr(event, "__aiter__"):
         async for sub in event:
             await track_tool_calls(ctx, sub)
         return
-
-    # Log all event types for debugging
-    event_type = type(event).__name__
-    logger.debug(f"📨 Event received: {event_type}")
 
     # Track function tool calls
     if isinstance(event, FunctionToolCallEvent):
@@ -70,74 +60,8 @@ async def track_tool_calls(ctx: Any, event: Any) -> None:
             f"🔍 Tool call #{tool_num}: {event.part.tool_name} with query: {query}..."
         )
         logger.info(
-            f"🔧 Tool Call #{tool_num}: {event.part.tool_name} with args: {event.part.args}"
+            f"Tool Call #{tool_num}: {event.part.tool_name} with args: {event.part.args}"
         )
-
-    # Accumulate text from delta events - this captures the raw model output
-    if isinstance(event, PartDeltaEvent):
-        # Track accumulation state before processing
-        text_before = len(_accumulated_text)
-        logger.debug(
-            f"PartDeltaEvent received, delta type: {type(event.delta) if hasattr(event, 'delta') else 'no delta attr'}, accumulated so far: {text_before} chars"
-        )
-        try:
-            delta = event.delta
-
-            # TextPartDelta - try multiple possible attribute names
-            if isinstance(delta, TextPartDelta):
-                # Try common attribute names for text content
-                text_chunk = None
-                for attr in ["text_delta", "text", "content_delta", "content", "delta"]:
-                    if hasattr(delta, attr):
-                        value = getattr(delta, attr)
-                        if value:
-                            text_chunk = value
-                            logger.debug(
-                                f"Found text in TextPartDelta.{attr}: {len(str(value))} chars, value: {repr(str(value)[:50])}"
-                            )
-                            break
-
-                if text_chunk:
-                    _accumulated_text += str(text_chunk)
-                    text_after = len(_accumulated_text)
-                    logger.debug(
-                        f"✓ Accumulated: {text_before} → {text_after} chars (+{text_after - text_before})"
-                    )
-            # Fallback: try direct string conversion or other attributes
-            elif isinstance(delta, str):
-                _accumulated_text += delta
-                text_after = len(_accumulated_text)
-                logger.debug(
-                    f"✓ Captured string delta: {len(delta)} chars, accumulated: {text_before} → {text_after} chars, value: {repr(delta[:50])}"
-                )
-            else:
-                # Try common text attributes on any delta type
-                for attr in ["text", "content", "data", "value"]:
-                    if hasattr(delta, attr):
-                        value = getattr(delta, attr)
-                        if value and isinstance(value, str):
-                            _accumulated_text += value
-                            text_after = len(_accumulated_text)
-                            logger.debug(
-                                f"✓ Captured text from delta.{attr}: {len(value)} chars, accumulated: {text_before} → {text_after} chars, value: {repr(value[:50])}"
-                            )
-                            break
-        except Exception as e:
-            logger.debug(
-                f"Error extracting text from delta: {e}, delta type: {type(event.delta) if hasattr(event, 'delta') else 'N/A'}"
-            )
-
-    # Capture output from final result
-    if isinstance(event, FinalResultEvent):
-        try:
-            if hasattr(event, "result") and hasattr(event.result, "output"):
-                output = event.result.output
-                if hasattr(output, "data"):
-                    _accumulated_text += str(output.data)
-                elif hasattr(output, "text"):
-                    _accumulated_text += str(output.text)
-        except Exception as e:
-            logger.debug(f"Error extracting text from final result: {e}")
 
 
 class RAGAgent:
@@ -148,40 +72,125 @@ class RAGAgent:
         self.agent = None
         self.search_index = None
 
+    def _parse_mongodb_documents(
+        self, docs: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Parse MongoDB documents into RAG format"""
+        parsed_docs = []
+        for doc in docs:
+            # Combine title and body for content
+            content_parts = []
+            if doc.get("title"):
+                content_parts.append(doc["title"])
+            if doc.get("body"):
+                content_parts.append(doc["body"])
+
+            parsed_docs.append(
+                {
+                    "content": " ".join(content_parts),
+                    "title": doc.get("title", ""),
+                    "source": f"question_{doc.get('question_id', 'unknown')}",
+                    "tags": doc.get("tags", []),
+                }
+            )
+        return parsed_docs
+
+    def _load_documents(
+        self,
+        documents: list[dict[str, Any]],
+        should_chunk: bool = True,
+    ) -> None:
+        """Load documents into search index with chunking"""
+        try:
+            logger.info(f"Loading {len(documents)} documents into search index")
+
+            # Limit documents to prevent memory issues
+            max_docs = 500
+            if len(documents) > max_docs:
+                logger.warning(
+                    f"Limiting to {max_docs} documents to prevent memory issues"
+                )
+                documents = documents[:max_docs]
+
+            if should_chunk:
+                # Use simple chunking function
+                chunked_docs = chunk_documents(
+                    documents, self.config.chunk_size, self.config.chunk_overlap
+                )
+                logger.info(f"Chunked documents into {len(chunked_docs)} chunks")
+            else:
+                chunked_docs = documents
+
+            # Add to search index
+            self.search_index.add_documents(chunked_docs)
+            logger.info(
+                f"Successfully loaded {len(chunked_docs)} documents into search index"
+            )
+
+        except Exception as e:
+            logger.error(f"Error loading documents: {e}")
+            raise
+
+    def _load_from_mongodb(self, should_chunk: bool = True) -> None:
+        """Load documents from MongoDB and add to search index"""
+        try:
+            logger.info(
+                f"Loading documents from MongoDB: {self.config.database}.{self.config.collection}"
+            )
+
+            # Connect to MongoDB using config
+            client = MongoClient(self.config.mongo_uri)
+            db = client[self.config.database]
+            collection_obj = db[self.config.collection]
+
+            # Load ALL documents
+            docs = list(collection_obj.find({}, {"_id": 0}))
+            logger.info(f"Loaded {len(docs)} documents from MongoDB")
+
+            client.close()
+
+            # Parse documents
+            documents = self._parse_mongodb_documents(docs)
+            logger.info(f"Parsed {len(documents)} documents for RAG")
+
+            # Load documents into search index
+            self._load_documents(documents, should_chunk=should_chunk)
+
+        except Exception as e:
+            logger.error(f"Error loading from MongoDB: {e}")
+            raise
+
     def initialize(self) -> None:
         """Initialize search index and create agent"""
-        # Initialize search index by loading documents from MongoDB
-        logger.info("Initializing search index with documents from MongoDB...")
+        # Initialize search index
+        logger.info("Initializing search index...")
+        self.search_index = SearchIndex(self.config.search_type)
 
-        # Use existing TextRAG to load documents
-        text_rag = TextRAG(self.config)
-        text_rag.load_from_mongodb(should_chunk=True)
-
-        # Get the search index that was loaded
-        self.search_index = text_rag.search_index
+        # Load documents from MongoDB
+        logger.info("Loading documents from MongoDB...")
+        self._load_from_mongodb(should_chunk=True)
 
         # Initialize the tool function with the search index
         initialize_search_index(self.search_index)
 
+        # Set max tool calls limit from config
+        from rag_agent.tools import set_max_tool_calls
+
+        set_max_tool_calls(self.config.max_tool_calls)
+
         # Get instructions from config
         instructions = InstructionsConfig.INSTRUCTIONS[InstructionType.RAG_AGENT]
 
-        # Initialize Ollama model (local, data privacy)
+        # Initialize OpenAI model
         from pydantic_ai.models.openai import OpenAIChatModel
         from pydantic_ai.providers.openai import OpenAIProvider
 
-        from config import OLLAMA_HOST
-
-        # Use Ollama via OpenAI-compatible interface (local inference)
-        # OLLAMA_HOST should be "http://ollama:11434" for Docker or "http://localhost:11434" for local
-        ollama_base_url = f"{OLLAMA_HOST}/v1"
+        # Use OpenAI provider (no base_url needed for OpenAI API)
         model = OpenAIChatModel(
-            model_name=self.config.ollama_model,
-            provider=OpenAIProvider(base_url=ollama_base_url),
+            model_name=self.config.openai_model,
+            provider=OpenAIProvider(),
         )
-        logger.info(
-            f"Using Ollama model: {self.config.ollama_model} at {ollama_base_url}"
-        )
+        logger.info(f"Using OpenAI model: {self.config.openai_model}")
 
         # Create agent with max_tokens limit for speed
         from pydantic_ai import ModelSettings
@@ -209,10 +218,14 @@ class RAGAgent:
         Returns:
             (answer, tool_calls) - Answer object and list of tool calls for evaluation
         """
-        # Declare global variables at the top of the method
-        global _tool_calls, _accumulated_text
-        _tool_calls = []  # Reset for each query
-        _accumulated_text = ""  # Reset accumulated text
+        # Reset tool calls for this query
+        global _tool_calls
+        _tool_calls = []
+
+        # Reset tool call counter for this query
+        from rag_agent.tools import reset_tool_call_count
+
+        reset_tool_call_count()
 
         if self.agent is None:
             raise RuntimeError("Agent not initialized. Call initialize() first.")
@@ -227,134 +240,7 @@ class RAGAgent:
                 event_stream_handler=track_tool_calls,
             )
         except Exception as e:
-            logger.error(f"Error during agent.run(): {e}")
-            logger.error(f"Error type: {type(e).__name__}")
-
-            # If we didn't capture text from events, try to extract from exception
-            if not _accumulated_text:
-                logger.debug("Attempting to extract model output from exception...")
-
-                # Try to extract from exception cause (ToolRetryError)
-                if hasattr(e, "__cause__") and e.__cause__:
-                    cause = e.__cause__
-
-                    # Check for tool_retry with model_response
-                    if hasattr(cause, "tool_retry"):
-                        tool_retry = cause.tool_retry
-                        if hasattr(tool_retry, "model_response"):
-                            try:
-                                # model_response might be callable or a property
-                                model_response = (
-                                    tool_retry.model_response()
-                                    if callable(tool_retry.model_response)
-                                    else tool_retry.model_response
-                                )
-
-                                # Extract text from model_response parts
-                                if hasattr(model_response, "parts"):
-                                    for part in model_response.parts:
-                                        if hasattr(part, "text") and part.text:
-                                            text = str(part.text)
-                                            if (
-                                                text
-                                                and text
-                                                != "Please include your response in a tool call."
-                                            ):
-                                                _accumulated_text = text
-                                                break
-                                        elif hasattr(part, "content") and part.content:
-                                            content = str(part.content)
-                                            if (
-                                                content
-                                                and content
-                                                != "Please include your response in a tool call."
-                                            ):
-                                                _accumulated_text = content
-                                                break
-
-                                # Try direct attributes
-                                if not _accumulated_text:
-                                    for attr in ["text", "content"]:
-                                        if hasattr(model_response, attr):
-                                            value = getattr(model_response, attr)
-                                            if (
-                                                value
-                                                and str(value)
-                                                != "Please include your response in a tool call."
-                                            ):
-                                                _accumulated_text = str(value)
-                                                break
-                            except Exception as extract_err:
-                                logger.debug(
-                                    f"Could not extract from model_response: {extract_err}"
-                                )
-
-                    # Try to extract from last_assistant_message
-                    if not _accumulated_text and hasattr(
-                        cause, "last_assistant_message"
-                    ):
-                        msg = cause.last_assistant_message
-                        if msg and hasattr(msg, "parts"):
-                            for part in msg.parts:
-                                for attr in ["text", "content"]:
-                                    if hasattr(part, attr):
-                                        value = getattr(part, attr)
-                                        if (
-                                            value
-                                            and str(value)
-                                            != "Please include your response in a tool call."
-                                        ):
-                                            _accumulated_text = str(value)
-                                            break
-                                if _accumulated_text:
-                                    break
-
-            # Log captured output for debugging
-            if _accumulated_text:
-                logger.error(
-                    f"📝 Captured model output ({len(_accumulated_text)} chars): {_accumulated_text[:500]}..."
-                )
-                print(
-                    f"📝 DEBUG: Captured {len(_accumulated_text)} chars of model output"
-                )
-                print(f"📝 First 500 chars: {_accumulated_text[:500]}")
-
-                # Try to extract and validate JSON
-                text_to_parse = _accumulated_text.strip()
-
-                # Extract from markdown code blocks if present
-                if text_to_parse.startswith("```"):
-                    import re
-
-                    json_match = re.search(
-                        r"```(?:json)?\s*(.*?)\s*```", text_to_parse, re.DOTALL
-                    )
-                    if json_match:
-                        text_to_parse = json_match.group(1).strip()
-
-                # Try to parse and validate JSON
-                try:
-                    parsed = json.loads(text_to_parse)
-                    logger.error("📝 JSON is valid. Checking schema...")
-
-                    if isinstance(parsed, dict):
-                        required_fields = ["answer", "confidence", "sources_used"]
-                        missing = [f for f in required_fields if f not in parsed]
-                        if missing:
-                            logger.error(f"📝 Missing fields: {missing}")
-                        else:
-                            logger.error(
-                                f"📝 Schema validation: answer={type(parsed.get('answer'))}, confidence={type(parsed.get('confidence'))}, sources_used={type(parsed.get('sources_used'))}"
-                            )
-                except json.JSONDecodeError as je:
-                    logger.error(f"📝 JSON parse error: {je.msg} at position {je.pos}")
-            else:
-                logger.error(
-                    "📝 No model output captured - event handler may not be receiving delta events"
-                )
-                print("📝 DEBUG: No model output was captured from events")
-
-            print(f"❌ Error during agent execution: {e}")
+            logger.error(f"Error during agent execution: {e}")
             raise
 
         logger.info(f"Agent completed query. Tool calls: {len(_tool_calls)}")

@@ -149,10 +149,6 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_RAG_MODEL = os.getenv("OPENAI_RAG_MODEL", str(DEFAULT_RAG_MODEL))
 OPENAI_JUDGE_MODEL = os.getenv("OPENAI_JUDGE_MODEL", str(DEFAULT_JUDGE_MODEL))
 
-# Deprecated: Ollama configuration (kept for backward compatibility during migration)
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-OLLAMA_RAG_MODEL = os.getenv("OLLAMA_RAG_MODEL", str(DEFAULT_RAG_MODEL))
-OLLAMA_JUDGE_MODEL = os.getenv("OLLAMA_JUDGE_MODEL", str(DEFAULT_JUDGE_MODEL))
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
