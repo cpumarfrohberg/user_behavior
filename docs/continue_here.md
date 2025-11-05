@@ -408,10 +408,26 @@ These are **independent components**:
 - Orchestrator's job: Route questions and synthesize answers
 - Judge LLM's job: Evaluate answer quality (separate from the agents being tested)
 
+**JudgeScore Model** (from `neo4j_evaluation` branch - adapted for OpenAI):
+```python
+class JudgeScore(BaseModel):
+    """Structured evaluation score from Judge LLM"""
+
+    overall_score: float = Field(..., ge=0.0, le=1.0, description="Overall quality score (0.0 to 1.0)")
+    relevance: float = Field(..., ge=0.0, le=1.0, description="How relevant is the answer to the question?")
+    completeness: float = Field(..., ge=0.0, le=1.0, description="How complete is the answer?")
+    accuracy: float = Field(..., ge=0.0, le=1.0, description="How accurate are the facts based on sources?")
+    source_attribution: float = Field(..., ge=0.0, le=1.0, description="Are sources properly cited and used?")
+    coherence: float = Field(..., ge=0.0, le=1.0, description="Is the answer well-structured and clear?")
+    reasoning: str = Field(..., description="Brief explanation of the evaluation")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Judge's confidence in this evaluation")
+```
+
 **Judge LLM Agent**:
 ```python
 from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.openai import OpenAIProvider
 
 class JudgeLLM:
     """LLM-based judge for evaluating answer quality (independent evaluation component)"""
@@ -421,31 +437,24 @@ class JudgeLLM:
         question: str,
         answer: str,
         ground_truth: dict | None = None
-    ) -> dict:
+    ) -> JudgeScore:
         """
         Evaluate answer quality using LLM judge.
         This is a SEPARATE component from the agents being evaluated.
 
         Returns:
-            {
-                "score": 0.0-1.0,
-                "reasoning": "explanation",
-                "criteria_met": {
-                    "relevance": bool,
-                    "completeness": bool,
-                    "accuracy": bool,
-                    "clarity": bool
-                }
-            }
+            JudgeScore with evaluation metrics
         """
 ```
 
-**Evaluation Criteria**:
-- **Relevance**: Does the answer address the question?
-- **Completeness**: Does the answer cover all aspects?
-- **Accuracy**: Is the information correct?
-- **Clarity**: Is the answer well-structured and clear?
-- **Source Quality**: Are sources relevant and credible?
+**Evaluation Criteria** (from `neo4j_evaluation` branch):
+- **Relevance** (0.0-1.0): Does the answer directly address the question?
+- **Completeness** (0.0-1.0): Is the answer thorough and comprehensive?
+- **Accuracy** (0.0-1.0): Are the facts correct based on provided sources?
+- **Source Attribution** (0.0-1.0): Are sources properly cited and used?
+- **Coherence** (0.0-1.0): Is the answer well-structured, clear, and easy to understand?
+
+**Note**: The `neo4j_evaluation` branch has a comprehensive Judge LLM design document (`docs/JUDGE_LLM_DESIGN.md`) with detailed implementation examples. We can adapt it for OpenAI (instead of Ollama) and use it as reference.
 
 **Judge Instructions**:
 - Use `config/instructions.py` with `InstructionType.JUDGE_AGENT` (needs to be created)
