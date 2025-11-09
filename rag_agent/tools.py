@@ -9,7 +9,7 @@ from rag_agent.models import SearchResult
 _search_index = None
 # Global tool call counter (incremented by agent's event handler)
 _tool_call_count = 0
-_max_tool_calls = 3  # Safety limit - can be overridden
+_max_tool_calls = 5  # Safety limit - can be overridden
 
 
 def initialize_search_index(search_index) -> None:

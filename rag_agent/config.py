@@ -25,7 +25,7 @@ class RAGConfig:
     chunk_size: int = DEFAULT_CHUNK_SIZE
     chunk_overlap: int = DEFAULT_CHUNK_OVERLAP
     max_context_length: int = DEFAULT_MAX_CONTEXT_LENGTH
-    max_tool_calls: int = 3  # Maximum number of tool calls allowed (safety limit)
+    max_tool_calls: int = 5  # Maximum number of tool calls allowed (safety limit)
     mongo_uri: str = MONGODB_URI
     database: str = MONGODB_DB
     collection: str = "posts"
