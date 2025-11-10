@@ -34,4 +34,34 @@ class RAGAnswer(BaseModel):
     )
 
 
-__all__ = ["RAGAnswer", "SearchResult"]
+class TokenUsage(BaseModel):
+    """Token usage information from LLM API calls"""
+
+    input_tokens: int = Field(..., ge=0, description="Number of input tokens used")
+    output_tokens: int = Field(..., ge=0, description="Number of output tokens used")
+    total_tokens: int = Field(..., ge=0, description="Total tokens used")
+
+
+class JudgeEvaluation(BaseModel):
+    """Judge evaluation output for answer quality assessment"""
+
+    overall_score: float = Field(
+        ..., ge=0.0, le=1.0, description="Overall quality score (0.0 to 1.0)"
+    )
+    accuracy: float = Field(
+        ..., ge=0.0, le=1.0, description="Factual correctness score (0.0 to 1.0)"
+    )
+    completeness: float = Field(
+        ..., ge=0.0, le=1.0, description="Answer thoroughness score (0.0 to 1.0)"
+    )
+    relevance: float = Field(
+        ..., ge=0.0, le=1.0, description="Answer relevance to question (0.0 to 1.0)"
+    )
+    reasoning: str = Field(..., description="Brief explanation of the evaluation")
+
+
+class JudgeResult(BaseModel):
+    """Result from judge evaluation including evaluation and usage"""
+
+    evaluation: JudgeEvaluation = Field(..., description="Judge evaluation scores")
+    usage: TokenUsage = Field(..., description="Token usage information")
