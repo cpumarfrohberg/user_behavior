@@ -1,0 +1,102 @@
+{
+  "timestamp": "2025-11-16T18:37:40.359581",
+  "num_questions": 10,
+  "summary": {
+    "avg_hit_rate": 1.0,
+    "avg_mrr": 1.0,
+    "avg_judge_score": 0.8649999999999999,
+    "avg_num_tokens": 1905.0,
+    "total_tokens": 19050,
+    "avg_combined_score": 0.5833571663551905,
+    "best_combined_score": 0.6337609111975774
+  },
+  "results": [
+    {
+      "question": "Most useful survey questions for user research?",
+      "hit_rate": 1.0,
+      "mrr": 1.0,
+      "judge_score": 0.9,
+      "num_tokens": 1815,
+      "combined_score": 0.6337609111975774
+    },
+    {
+      "question": "Confusing checkboxes and radio buttons",
+      "hit_rate": 1.0,
+      "mrr": 1.0,
+      "judge_score": 0.9,
+      "num_tokens": 1821,
+      "combined_score": 0.6327159625705661
+    },
+    {
+      "question": "Making a Streak Visualization More Intuitive",
+      "hit_rate": 1.0,
+      "mrr": 1.0,
+      "judge_score": 0.9,
+      "num_tokens": 2000,
+      "combined_score": 0.6037383539249432
+    },
+    {
+      "question": "Should we ask for name on card even though it&#39;s not required for credit card payments?",
+      "hit_rate": 1.0,
+      "mrr": 1.0,
+      "judge_score": 0.85,
+      "num_tokens": 1853,
+      "combined_score": 0.5756926422568068
+    },
+    {
+      "question": "Getting the real name of an user",
+      "hit_rate": 1.0,
+      "mrr": 1.0,
+      "judge_score": 0.85,
+      "num_tokens": 1889,
+      "combined_score": 0.5701805644924542
+    },
+    {
+      "question": "Multi shapes buttons damage User Experience / User Interface?",
+      "hit_rate": 1.0,
+      "mrr": 1.0,
+      "judge_score": 0.85,
+      "num_tokens": 1900,
+      "combined_score": 0.5685276459509478
+    },
+    {
+      "question": "Consistent UI experience",
+      "hit_rate": 1.0,
+      "mrr": 1.0,
+      "judge_score": 0.85,
+      "num_tokens": 1914,
+      "combined_score": 0.56644457507802
+    },
+    {
+      "question": "Is database too technical a term for user?",
+      "hit_rate": 1.0,
+      "mrr": 1.0,
+      "judge_score": 0.85,
+      "num_tokens": 1925,
+      "combined_score": 0.5648238433582403
+    },
+    {
+      "question": "Unit of measure and Quantity in Purchase Orders",
+      "hit_rate": 1.0,
+      "mrr": 1.0,
+      "judge_score": 0.85,
+      "num_tokens": 1952,
+      "combined_score": 0.5609039286839723
+    },
+    {
+      "question": "What&#39;s a UX-friendly way to inconvenience a user into action e.g. prompt for payment",
+      "hit_rate": 1.0,
+      "mrr": 1.0,
+      "judge_score": 0.85,
+      "num_tokens": 1981,
+      "combined_score": 0.5567832360383769
+    }
+  ],
+  "metadata": {
+    "ground_truth_file": "evals/ground_truth.json",
+    "total_questions_in_ground_truth": 50,
+    "judge_model": "gpt-4o-mini",
+    "max_samples": 10,
+    "sampled": true
+  }
+}

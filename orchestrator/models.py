@@ -14,7 +14,7 @@ class OrchestratorAnswer(BaseModel):
     )
     agents_used: list[str] = Field(
         ...,
-        description="List of agents that were called (e.g., ['rag_agent', 'cypher_query_agent'])",
+        description="List of agents that were called (e.g., ['mongodb_agent', 'cypher_query_agent'])",
     )
     reasoning: str = Field(
         ...,

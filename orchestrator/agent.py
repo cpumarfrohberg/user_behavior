@@ -10,7 +10,7 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from config import DEFAULT_MAX_TOKENS, InstructionsConfig, InstructionType
 from orchestrator.config import OrchestratorConfig
 from orchestrator.models import OrchestratorAnswer
-from orchestrator.tools import call_cypher_query_agent, call_rag_agent
+from orchestrator.tools import call_cypher_query_agent, call_mongodb_agent
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ class OrchestratorAgent:
         self.agent = Agent(
             name="orchestrator_agent",
             model=model,
-            tools=[call_rag_agent, call_cypher_query_agent],
+            tools=[call_mongodb_agent, call_cypher_query_agent],
             instructions=instructions,
             output_type=OrchestratorAnswer,
             model_settings=ModelSettings(max_tokens=DEFAULT_MAX_TOKENS),

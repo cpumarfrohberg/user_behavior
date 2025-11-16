@@ -1,223 +1,146 @@
 # CLI for User Behavior Analysis using StackExchange RAG
 
+import asyncio
+import json
+import traceback
+from pathlib import Path
+from typing import Any, Callable
+
 import typer
-from pymongo import MongoClient
 
 from config import (
-    DEFAULT_BEST_RESULTS_COUNT,
-    DEFAULT_GRID_SEARCH_CHUNK_SIZES,
-    DEFAULT_GRID_SEARCH_OVERLAPS,
-    DEFAULT_GRID_SEARCH_RESULTS_OUTPUT,
-    DEFAULT_GRID_SEARCH_SAMPLES,
-    DEFAULT_GRID_SEARCH_TOP_KS,
     DEFAULT_GROUND_TRUTH_MIN_TITLE_LENGTH,
     DEFAULT_GROUND_TRUTH_OUTPUT,
     DEFAULT_GROUND_TRUTH_SAMPLES,
-    DEFAULT_SEARCH_TYPE,
-    DEFAULT_TOP_K,
+    DEFAULT_JUDGE_MODEL,
     MONGODB_COLLECTION,
     MONGODB_DB,
-    MONGODB_URI,
-    SearchType,
 )
+from evals.evaluate import DEFAULT_OUTPUT_PATH, evaluate_agent
 from evals.generate_ground_truth import (
     generate_ground_truth_from_mongodb,
     save_ground_truth,
 )
-from evals.save_results import save_grid_search_results
-from rag_agent.config import RAGConfig
-from search.search_utils import RAGError
-from search.simple_chunking import (
-    evaluate_chunking_grid,
-    evaluate_chunking_params,
-    find_best_chunking_params,
-)
+from mongodb_agent.agent import MongoDBSearchAgent
+from mongodb_agent.config import MongoDBConfig
 
 app = typer.Typer()
 
 
-@app.command()
-def ask(
-    question: str = typer.Argument(..., help="Question to ask"),
-    search_type: str = typer.Option(
-        str(DEFAULT_SEARCH_TYPE),
-        "--search-type",
-        "-s",
-        help="Search type: 'minsearch' (MinSearch) or 'sentence_transformers' (SentenceTransformer). Default: sentence_transformers",
-    ),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed output"),
-):
-    """DEPRECATED: Use 'agent-ask' instead. This command is no longer supported."""
-    typer.echo("❌ This command has been deprecated.")
-    typer.echo("💡 Use 'agent-ask' instead: uv run ask agent-ask \"your question\"")
+def _handle_error(e: Exception, verbose: bool = False) -> None:
+    """Handle errors with optional verbose traceback."""
+    typer.echo(f"❌ Error: {str(e)}", err=True)
+    if verbose:
+        typer.echo(traceback.format_exc(), err=True)
     raise typer.Exit(1)
+
+
+def _run_async(coro: Callable, verbose: bool = False) -> Any:
+    """Run async function with error handling."""
+    try:
+        return asyncio.run(coro())
+    except Exception as e:
+        _handle_error(e, verbose)
+
+
+def _init_mongodb_agent(verbose: bool = False) -> MongoDBSearchAgent:
+    """Initialize MongoDB agent with standard config."""
+    if verbose:
+        typer.echo("📥 Initializing MongoDB Agent...")
+    config = MongoDBConfig()
+    config.collection = "questions"
+    agent = MongoDBSearchAgent(config)
+    agent.initialize()
+    if verbose:
+        typer.echo("✅ Agent initialized successfully!")
+    return agent
+
+
+def _print_answer(result: Any, question: str, verbose: bool = False) -> None:
+    """Print agent answer with formatting."""
+    typer.echo(f"\n❓ Question: {question}")
+    typer.echo(f"💡 Answer: {result.answer.answer}")
+    typer.echo(f"🎯 Confidence: {result.answer.confidence:.2f}")
+
+    if hasattr(result.answer, "agents_used"):
+        typer.echo(f"🤖 Agents Used: {', '.join(result.answer.agents_used)}")
+    else:
+        typer.echo(f"🔍 Tool Calls: {len(result.tool_calls)}")
+
+    if verbose:
+        if hasattr(result.answer, "agents_used"):
+            typer.echo(f"\n💭 Routing Reasoning: {result.answer.reasoning}")
+        else:
+            typer.echo("\n📋 Tool Call History:")
+            for i, call in enumerate(result.tool_calls, 1):
+                typer.echo(f"  {i}. {call['tool_name']}: {call['args']}")
+            if result.answer.reasoning:
+                typer.echo(f"\n💭 Reasoning: {result.answer.reasoning}")
+
+    if result.answer.sources_used:
+        typer.echo("\n📚 Sources:")
+        for i, source in enumerate(result.answer.sources_used[:10], 1):
+            typer.echo(f"  {i}. {source}")
 
 
 @app.command()
 def agent_ask(
     question: str = typer.Argument(..., help="Question to ask the agent"),
-    search_type: str = typer.Option(
-        str(DEFAULT_SEARCH_TYPE),
-        "--search-type",
-        "-s",
-        help="Search type: 'minsearch' or 'sentence_transformers'",
-    ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show tool calls"),
 ):
-    """Ask a question using the RAG agent directly (makes multiple searches)"""
-    import asyncio
-
-    from rag_agent.agent import RAGAgent
-
+    """Ask a question using the MongoDB agent directly (makes multiple searches)"""
     try:
-        if verbose:
-            typer.echo("📥 Initializing RAG Agent...")
-
-        # Create config
-        config = RAGConfig()
-        config.collection = "questions"  # Use the correct collection name
-
-        # Set search type based on parameter
-        if search_type.lower() == "sentence_transformers":
-            config.search_type = SearchType.SENTENCE_TRANSFORMERS
-        elif search_type.lower() == "minsearch":
-            config.search_type = SearchType.MINSEARCH
-        else:
-            config.search_type = DEFAULT_SEARCH_TYPE
-
-        if verbose:
-            typer.echo(f"🔍 Using search type: {config.search_type}")
-
-        # Initialize agent
-        agent = RAGAgent(config)
-        agent.initialize()
-
-        if verbose:
-            typer.echo("✅ Agent initialized successfully!")
-            typer.echo("🤖 Running agent query...")
-        else:
-            typer.echo("🤖 Running agent query (this may take a minute)...")
+        agent = _init_mongodb_agent(verbose)
+        typer.echo(
+            "🤖 Running agent query"
+            + ("..." if verbose else " (this may take a minute)...")
+        )
 
         async def run_query():
-            try:
-                answer, tool_calls = await agent.query(question)
-            except Exception as e:
-                typer.echo(f"❌ Error during agent query: {str(e)}", err=True)
-                if verbose:
-                    import traceback
+            result = await agent.query(question)
+            _print_answer(result, question, verbose)
 
-                    typer.echo(traceback.format_exc(), err=True)
-                raise
-
-            typer.echo(f"\n❓ Question: {question}")
-            typer.echo(f"💡 Answer: {answer.answer}")
-            typer.echo(f"🎯 Confidence: {answer.confidence:.2f}")
-            typer.echo(f"🔍 Tool Calls: {len(tool_calls)}")
-
-            if verbose:
-                typer.echo("\n📋 Tool Call History:")
-                for i, call in enumerate(tool_calls, 1):
-                    typer.echo(f"  {i}. {call['tool_name']}: {call['args']}")
-
-            if answer.sources_used:
-                typer.echo("\n📚 Sources:")
-                for i, source in enumerate(answer.sources_used[:10], 1):
-                    typer.echo(f"  {i}. {source}")
-
-            if verbose and answer.reasoning:
-                typer.echo(f"\n💭 Reasoning: {answer.reasoning}")
-
-        asyncio.run(run_query())
-
+        _run_async(run_query, verbose)
     except Exception as e:
-        typer.echo(f"❌ Error: {str(e)}", err=True)
-        raise typer.Exit(1)
+        _handle_error(e, verbose)
 
 
 @app.command()
 def orchestrator_ask(
     question: str = typer.Argument(..., help="Question to ask"),
-    search_type: str = typer.Option(
-        str(DEFAULT_SEARCH_TYPE),
-        "--search-type",
-        "-s",
-        help="Search type: 'minsearch' or 'sentence_transformers' (for RAG agent)",
-    ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed output"),
 ):
     """Ask a question using the Orchestrator Agent (intelligently routes to RAG or Cypher Query Agent)"""
-    import asyncio
-
     from orchestrator.agent import OrchestratorAgent
     from orchestrator.config import OrchestratorConfig
-    from orchestrator.tools import initialize_rag_agent
+    from orchestrator.tools import initialize_mongodb_agent
 
     try:
         if verbose:
             typer.echo("📥 Initializing Orchestrator Agent...")
 
-        # Initialize RAG Agent with config (needed for orchestrator tools)
-        rag_config = RAGConfig()
-        rag_config.collection = "questions"
+        mongodb_config = MongoDBConfig()
+        mongodb_config.collection = "questions"
+        initialize_mongodb_agent(mongodb_config)
 
-        # Set search type based on parameter
-        if search_type.lower() == "sentence_transformers":
-            rag_config.search_type = SearchType.SENTENCE_TRANSFORMERS
-        elif search_type.lower() == "minsearch":
-            rag_config.search_type = SearchType.MINSEARCH
-        else:
-            rag_config.search_type = DEFAULT_SEARCH_TYPE
-
-        if verbose:
-            typer.echo(f"🔍 RAG Agent will use search type: {rag_config.search_type}")
-
-        # Initialize RAG Agent for orchestrator to use
-        initialize_rag_agent(rag_config)
-
-        # Create orchestrator config
-        orchestrator_config = OrchestratorConfig()
-
-        if verbose:
-            typer.echo("✅ RAG Agent initialized for orchestrator")
-
-        # Initialize orchestrator
-        orchestrator = OrchestratorAgent(orchestrator_config)
+        orchestrator = OrchestratorAgent(OrchestratorConfig())
         orchestrator.initialize()
 
-        if verbose:
-            typer.echo("✅ Orchestrator initialized successfully!")
-        else:
-            typer.echo("🎯 Orchestrator is analyzing your question...")
+        typer.echo(
+            "✅ Orchestrator initialized successfully!"
+            if verbose
+            else "🎯 Orchestrator is analyzing your question..."
+        )
 
         async def run_query():
-            try:
-                answer = await orchestrator.query(question)
-            except Exception as e:
-                typer.echo(f"❌ Error during orchestrator query: {str(e)}", err=True)
-                if verbose:
-                    import traceback
+            answer = await orchestrator.query(question)
+            # Wrap in result-like object for _print_answer
+            result = type("Result", (), {"answer": answer, "tool_calls": []})()
+            _print_answer(result, question, verbose)
 
-                    typer.echo(traceback.format_exc(), err=True)
-                raise
-
-            typer.echo(f"\n❓ Question: {question}")
-            typer.echo(f"💡 Answer: {answer.answer}")
-            typer.echo(f"🎯 Confidence: {answer.confidence:.2f}")
-            typer.echo(f"🤖 Agents Used: {', '.join(answer.agents_used)}")
-
-            if verbose:
-                typer.echo(f"\n💭 Routing Reasoning: {answer.reasoning}")
-
-            if answer.sources_used:
-                typer.echo("\n📚 Sources:")
-                for i, source in enumerate(answer.sources_used[:10], 1):
-                    typer.echo(f"  {i}. {source}")
-
-        asyncio.run(run_query())
-
+        _run_async(run_query, verbose)
     except Exception as e:
-        typer.echo(f"❌ Error: {str(e)}", err=True)
-        raise typer.Exit(1)
+        _handle_error(e, verbose)
 
 
 @app.command()
@@ -241,15 +164,10 @@ def generate_ground_truth(
         help="Minimum title length to include",
     ),
 ):
-    """Generate ground truth dataset for chunking parameter evaluation"""
+    """Generate ground truth dataset for evaluation"""
     try:
-        from pathlib import Path
-
-        from config import MONGODB_COLLECTION, MONGODB_DB
-
         typer.echo(f"📥 Connecting to MongoDB: {MONGODB_DB}.{MONGODB_COLLECTION}")
 
-        # Generate ground truth using existing function
         ground_truth = generate_ground_truth_from_mongodb(
             n_samples=samples,
             min_title_length=min_title_length,
@@ -266,232 +184,133 @@ def generate_ground_truth(
             typer.echo("❌ Error: No ground truth data generated", err=True)
             raise typer.Exit(1)
 
-        # Save to file using existing function (ensures .json extension)
         save_ground_truth(ground_truth, output)
-
-        # Get the actual output path (with .json extension ensured by save_ground_truth)
         output_path = Path(output)
         if output_path.suffix != ".json":
             output_path = output_path.with_suffix(".json")
 
         typer.echo(f"💾 Saved ground truth to {output_path} (JSON format)")
-
         typer.echo(
             f"\n✅ Successfully generated {len(ground_truth)} ground truth examples"
         )
         typer.echo(f"   Output: {output_path}")
         typer.echo("\n💡 Tip: Review and edit the file to remove low-quality examples")
-
     except Exception as e:
-        typer.echo(f"❌ Error: {str(e)}", err=True)
-        raise typer.Exit(1)
-
-
-def _load_documents_from_mongodb() -> list[dict]:
-    """Helper function to load and parse documents from MongoDB"""
-    client = MongoClient(MONGODB_URI)
-    db = client[MONGODB_DB]
-    collection_obj = db[MONGODB_COLLECTION]
-
-    docs = list(collection_obj.find({}, {"_id": 0}))
-    client.close()
-
-    # Parse documents (same logic as TextRAG._parse_mongodb_documents)
-    parsed_docs = []
-    for doc in docs:
-        content_parts = []
-        if doc.get("title"):
-            content_parts.append(doc["title"])
-        if doc.get("body"):
-            content_parts.append(doc["body"])
-
-        parsed_docs.append(
-            {
-                "content": " ".join(content_parts),
-                "title": doc.get("title", ""),
-                "source": f"question_{doc.get('question_id', 'unknown')}",
-                "tags": doc.get("tags", []),
-            }
-        )
-
-    return parsed_docs
+        _handle_error(e)
 
 
 @app.command()
-def evaluate_chunking(
-    ground_truth_file: str = typer.Option(
+def evaluate(
+    ground_truth: str = typer.Option(
         DEFAULT_GROUND_TRUTH_OUTPUT,
         "--ground-truth",
         "-g",
         help="Path to ground truth JSON file",
     ),
-    chunk_sizes: str = typer.Option(
-        None,
-        "--chunk-sizes",
-        "-c",
-        help="Comma-separated chunk sizes for grid search (e.g., '300,500,1000')",
-    ),
-    overlaps: str = typer.Option(
-        None,
-        "--overlaps",
-        help="Comma-separated overlaps for grid search (e.g., '0,15,50')",
-    ),
-    top_ks: str = typer.Option(
-        None,
-        "--top-ks",
-        "-k",
-        help="Comma-separated top_k values for grid search (e.g., '5,10,15')",
-    ),
-    n_samples: int = typer.Option(
-        DEFAULT_GRID_SEARCH_SAMPLES,
-        "--samples",
-        "-n",
-        help="Number of random combinations to test",
-    ),
-    search_type: str = typer.Option(
-        DEFAULT_SEARCH_TYPE,
-        "--search-type",
-        "-s",
-        help="Search type: 'minsearch' or 'sentence_transformers'",
-    ),
-    best_n: int = typer.Option(
-        DEFAULT_BEST_RESULTS_COUNT,
-        "--best-n",
-        "-b",
-        help="Number of best results to display",
-    ),
     output: str = typer.Option(
-        DEFAULT_GRID_SEARCH_RESULTS_OUTPUT,
+        DEFAULT_OUTPUT_PATH,
         "--output",
         "-o",
-        help="Path to save grid search results CSV file",
+        help="Path to output JSON file for results",
     ),
-    save: bool = typer.Option(
-        True,
-        "--save/--no-save",
-        help="Save results to CSV file",
+    judge_model: str = typer.Option(
+        None,
+        "--judge-model",
+        "-j",
+        help=f"Model to use for judging (default: {DEFAULT_JUDGE_MODEL})",
     ),
+    max_samples: int = typer.Option(
+        15,
+        "--max-samples",
+        "-n",
+        help="Maximum number of questions to evaluate (default: 15). Use 0 to evaluate all.",
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed output"),
 ):
-    """Evaluate chunking parameters using randomized grid search
-
-    Tests random combinations of chunk_size, overlap, and top_k parameters.
-    Uses default ranges if not provided.
-    """
-    import json
-    from pathlib import Path
-
+    """Evaluate MongoDB agent using ground truth and judge LLM"""
     try:
-        # Load ground truth
-        ground_truth_path = Path(ground_truth_file)
+        ground_truth_path = Path(ground_truth)
         if not ground_truth_path.exists():
             typer.echo(
                 f"❌ Error: Ground truth file not found: {ground_truth_path}", err=True
             )
             raise typer.Exit(1)
 
-        typer.echo(f"📥 Loading ground truth from {ground_truth_path}...")
         with open(ground_truth_path, "r") as f:
-            ground_truth = json.load(f)
+            total_questions = len(json.load(f))
 
-        if not ground_truth:
-            typer.echo("❌ Error: Ground truth file is empty", err=True)
-            raise typer.Exit(1)
+        # Determine how many questions to evaluate
+        num_to_evaluate = max_samples if max_samples > 0 else total_questions
 
-        typer.echo(f"✅ Loaded {len(ground_truth)} ground truth examples")
+        typer.echo(f"📊 Loaded {total_questions} questions from ground truth")
+        if max_samples > 0 and max_samples < total_questions:
+            typer.echo(
+                f"🎲 Will evaluate {num_to_evaluate} random questions (sampling from {total_questions})"
+            )
+        else:
+            typer.echo(f"📝 Will evaluate all {num_to_evaluate} questions")
+        typer.echo(f"📁 Ground truth: {ground_truth_path}")
+        typer.echo(f"💾 Output: {output}")
 
-        # Load documents from MongoDB
+        agent = _init_mongodb_agent(verbose)
+        model_to_use = judge_model or DEFAULT_JUDGE_MODEL
+        if verbose:
+            typer.echo(f"⚖️  Using judge model: {model_to_use}")
+
+        typer.echo(f"\n🚀 Starting evaluation of {num_to_evaluate} questions...")
         typer.echo(
-            f"📥 Loading documents from MongoDB: {MONGODB_DB}.{MONGODB_COLLECTION}..."
-        )
-        documents = _load_documents_from_mongodb()
-        typer.echo(f"✅ Loaded {len(documents)} documents")
-
-        # Parse search type
-        if search_type.lower() == "sentence_transformers":
-            search_type_enum = SearchType.SENTENCE_TRANSFORMERS
-        else:
-            search_type_enum = SearchType.MINSEARCH
-
-        # Parse grid search parameters
-        if chunk_sizes:
-            chunk_sizes_list = [int(x.strip()) for x in chunk_sizes.split(",")]
-        else:
-            chunk_sizes_list = DEFAULT_GRID_SEARCH_CHUNK_SIZES
-
-        if overlaps:
-            overlaps_list = [int(x.strip()) for x in overlaps.split(",")]
-        else:
-            overlaps_list = DEFAULT_GRID_SEARCH_OVERLAPS
-
-        if top_ks:
-            top_ks_list = [int(x.strip()) for x in top_ks.split(",")]
-        else:
-            top_ks_list = DEFAULT_GRID_SEARCH_TOP_KS
-
-        typer.echo("\n🔍 Running grid search...")
-        typer.echo(f"   chunk_sizes: {chunk_sizes_list}")
-        typer.echo(f"   overlaps: {overlaps_list}")
-        typer.echo(f"   top_ks: {top_ks_list}")
-        typer.echo(f"   samples: {n_samples}")
-        typer.echo(f"   search_type: {search_type_enum}")
-
-        results = evaluate_chunking_grid(
-            documents=documents,
-            ground_truth=ground_truth,
-            chunk_sizes=chunk_sizes_list,
-            overlaps=overlaps_list,
-            top_ks=top_ks_list,
-            n_samples=n_samples,
-            search_type=search_type_enum,
+            "⏳ This may take a while (each question requires agent + judge evaluation)...\n"
         )
 
-        typer.echo(f"✅ Evaluated {len(results)} parameter combinations")
-
-        # Find and display best results
-        best = find_best_chunking_params(results, n=best_n)
-
-        typer.echo(f"\n🏆 Top {len(best)} Results:")
-        for i, result in enumerate(best, 1):
-            typer.echo(f"\n{i}. Score: {result['score']:.3f}")
-            typer.echo(
-                f"   chunk_size={result['chunk_size']}, overlap={result['overlap']}, top_k={result['top_k']}"
-            )
-            typer.echo(
-                f"   Hit Rate: {result['hit_rate']:.3f}, MRR: {result['mrr']:.3f}, Tokens: {result['num_tokens']:.1f}"
-            )
-
-        # Save results if requested
-        if save:
-            metadata = {
-                "search_type": str(search_type_enum),
-                "chunk_sizes": chunk_sizes_list,
-                "overlaps": overlaps_list,
-                "top_ks": top_ks_list,
-                "n_samples": n_samples,
-                "ground_truth_file": str(ground_truth_path),
-                "num_ground_truth_samples": len(ground_truth),
-                "num_documents": len(documents),
-            }
-
-            saved_path = save_grid_search_results(
-                results=results,
+        async def execute_evaluation():
+            result_path = await evaluate_agent(
+                ground_truth_path=ground_truth_path,
+                agent_query_fn=lambda q: agent.query(q),
                 output_path=output,
-                metadata=metadata,
+                judge_model=model_to_use,
+                max_samples=max_samples if max_samples > 0 else None,
             )
 
-            typer.echo(f"\n💾 Saved results to {saved_path}")
+            with open(result_path, "r") as f:
+                results_data = json.load(f)
 
-        typer.echo("\n✅ Grid search complete!")
+            summary = results_data.get("summary", {})
+            typer.echo("\n" + "=" * 60)
+            typer.echo("📊 EVALUATION SUMMARY")
+            typer.echo("=" * 60)
+            typer.echo(
+                f"✅ Questions evaluated: {results_data.get('num_questions', 0)}"
+            )
+            typer.echo(f"📈 Average Hit Rate: {summary.get('avg_hit_rate', 0.0):.2f}")
+            typer.echo(f"📈 Average MRR: {summary.get('avg_mrr', 0.0):.2f}")
+            typer.echo(
+                f"⚖️  Average Judge Score: {summary.get('avg_judge_score', 0.0):.2f}"
+            )
+            typer.echo(
+                f"🎯 Average Combined Score: {summary.get('avg_combined_score', 0.0):.2f}"
+            )
+            typer.echo(f"🔢 Total Tokens: {summary.get('total_tokens', 0):,}")
+            typer.echo(f"💾 Results saved to: {result_path}")
+            typer.echo("=" * 60)
 
-    except FileNotFoundError as e:
-        typer.echo(f"❌ Error: File not found: {str(e)}", err=True)
-        raise typer.Exit(1)
-    except json.JSONDecodeError as e:
-        typer.echo(f"❌ Error: Invalid JSON in ground truth file: {str(e)}", err=True)
-        raise typer.Exit(1)
+            if verbose:
+                typer.echo("\n📋 Detailed results:")
+                for i, result in enumerate(results_data.get("results", [])[:5], 1):
+                    typer.echo(f"\n  {i}. {result.get('question', 'N/A')[:50]}...")
+                    typer.echo(f"     Hit Rate: {result.get('hit_rate', 0.0):.2f}")
+                    typer.echo(f"     MRR: {result.get('mrr', 0.0):.2f}")
+                    typer.echo(
+                        f"     Judge Score: {result.get('judge_score', 0.0):.2f}"
+                    )
+                    typer.echo(
+                        f"     Combined Score: {result.get('combined_score', 0.0):.2f}"
+                    )
+
+            return result_path
+
+        _run_async(execute_evaluation, verbose)
     except Exception as e:
-        typer.echo(f"❌ Error: {str(e)}", err=True)
-        raise typer.Exit(1)
+        _handle_error(e, verbose)
 
 
 if __name__ == "__main__":

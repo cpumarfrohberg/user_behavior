@@ -2,18 +2,19 @@
 
 import json
 import logging
+import random
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from evals.combined_score import calculate_combined_score
 from evals.judge import evaluate_answer
 from evals.save_results import save_evaluation_results
 from evals.source_metrics import calculate_hit_rate, calculate_mrr
-from rag_agent.models import RAGAnswer, TokenUsage
+from mongodb_agent.models import SearchAgentResult, SearchAnswer, TokenUsage
 
 logger = logging.getLogger(__name__)
 
-# Constants
 DEFAULT_OUTPUT_PATH = "evals/results/evaluation.json"
 QUESTION_PREVIEW_LENGTH = 50  # Max length for question in logs
 SCORE_DECIMAL_PLACES = 2  # Decimal places for score formatting
@@ -26,19 +27,22 @@ FALLBACK_COMBINED_SCORE = 0.0  # Fallback combined score for failed evaluations
 
 async def evaluate_agent(
     ground_truth_path: str | Path,
-    agent_query_fn: Callable[[str], Awaitable[tuple[RAGAnswer, list[dict]]]],
+    agent_query_fn: Callable[[str], Awaitable[SearchAgentResult]],
     output_path: str | Path = DEFAULT_OUTPUT_PATH,
     judge_model: str | None = None,
+    max_samples: int | None = None,
 ) -> Path:
     """
     Run full evaluation workflow on an agent.
 
     Args:
         ground_truth_path: Path to ground truth JSON file
-        agent_query_fn: Async function that takes a question and returns (answer, tool_calls)
-                       The function should return (RAGAnswer, list[dict])
+        agent_query_fn: Async function that takes a question and returns SearchAgentResult
+                       The function should return SearchAgentResult with answer and tool_calls
         output_path: Path to output JSON file (default: DEFAULT_OUTPUT_PATH)
         judge_model: Model to use for judging (default: from config)
+        max_samples: Maximum number of questions to evaluate (None = evaluate all).
+                     If provided, a random sample will be selected.
 
     Returns:
         Path to saved JSON file
@@ -46,13 +50,13 @@ async def evaluate_agent(
     Example:
         async def my_agent_query(question: str):
             # Your agent query logic
-            answer, tool_calls = await agent.query(question)
-            return answer, tool_calls
+            return await agent.query(question)
 
         path = await evaluate_agent(
             "evals/ground_truth.json",
             my_agent_query,
             "evals/results/evaluation.json",
+            max_samples=10,  # Evaluate only 10 random questions
         )
     """
     # Load ground truth
@@ -63,7 +67,17 @@ async def evaluate_agent(
     with open(ground_truth_path, "r") as f:
         ground_truth = json.load(f)
 
-    logger.info(f"Loaded {len(ground_truth)} questions from ground truth")
+    original_count = len(ground_truth)
+
+    # Sample if max_samples is provided
+    if max_samples is not None and max_samples < original_count:
+        ground_truth = random.sample(ground_truth, max_samples)
+        logger.info(
+            f"Loaded {original_count} questions from ground truth, "
+            f"sampling {max_samples} questions for evaluation"
+        )
+    else:
+        logger.info(f"Loaded {original_count} questions from ground truth")
 
     results = []
 
@@ -78,18 +92,19 @@ async def evaluate_agent(
 
         try:
             # Run agent query
-            answer, tool_calls = await agent_query_fn(question)
+            result = await agent_query_fn(question)
 
             # Calculate source metrics
-            actual_sources = answer.sources_used or []
+            actual_sources = result.answer.sources_used or []
             hit_rate = calculate_hit_rate(expected_sources, actual_sources)
             mrr = calculate_mrr(expected_sources, actual_sources)
 
             # Run judge evaluation
             judge_result = await evaluate_answer(
                 question,
-                answer,
-                tool_calls=tool_calls,
+                result.answer,
+                tool_calls=result.tool_calls,
+                expected_sources=expected_sources,
                 judge_model=judge_model,
             )
             judge_score = judge_result.evaluation.overall_score
@@ -144,9 +159,13 @@ async def evaluate_agent(
     # Prepare metadata
     metadata: dict[str, Any] = {
         "ground_truth_file": str(ground_truth_path),
+        "total_questions_in_ground_truth": original_count,
     }
     if judge_model:
         metadata["judge_model"] = judge_model
+    if max_samples is not None:
+        metadata["max_samples"] = max_samples
+        metadata["sampled"] = True
 
     # Save results
     output_path = save_evaluation_results(results, output_path, metadata)

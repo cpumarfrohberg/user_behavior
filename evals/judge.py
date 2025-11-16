@@ -15,7 +15,7 @@ from config import (
     DEFAULT_MAX_TOKENS,
 )
 from config.instructions import InstructionsConfig, InstructionType
-from rag_agent.models import JudgeEvaluation, JudgeResult, RAGAnswer, TokenUsage
+from mongodb_agent.models import JudgeEvaluation, JudgeResult, SearchAnswer, TokenUsage
 
 logger = logging.getLogger(__name__)
 
@@ -91,8 +91,9 @@ async def _run_judge_with_retry(
 
 async def evaluate_answer(
     question: str,
-    answer: RAGAnswer,
+    answer: SearchAnswer,
     tool_calls: Optional[list[dict]] = None,
+    expected_sources: Optional[list[str]] = None,
     judge_model: str = DEFAULT_JUDGE_MODEL,
     max_retries: int = DEFAULT_MAX_RETRIES,
 ) -> JudgeResult:
@@ -101,8 +102,9 @@ async def evaluate_answer(
 
     Args:
         question: The original question asked
-        answer: The RAGAnswer from the agent
+        answer: The SearchAnswer from the agent
         tool_calls: Optional list of tool calls made by the agent (for context)
+        expected_sources: Optional list of expected source IDs (from ground truth)
         judge_model: Model to use for judging (default: DEFAULT_JUDGE_MODEL)
         max_retries: Maximum number of retry attempts (default: DEFAULT_MAX_RETRIES)
 
@@ -136,12 +138,24 @@ async def evaluate_answer(
 {json.dumps(tool_calls, indent=JSON_INDENT)}
 </TOOL_CALLS>"""
 
+    # Build expected sources section
+    expected_sources_section = ""
+    if expected_sources:
+        expected_sources_section = f"""
+<EXPECTED_SOURCES>{', '.join(expected_sources)}</EXPECTED_SOURCES>"""
+
+    # Build reasoning section if available
+    reasoning_section = ""
+    if answer.reasoning:
+        reasoning_section = f"""
+<REASONING>{answer.reasoning}</REASONING>"""
+
     # Prepare evaluation prompt with XML tags (best practice from Evidently AI)
     evaluation_prompt = f"""<QUESTION>{question}</QUESTION>
 
 <ANSWER>{answer.answer}</ANSWER>
 
-<SOURCES>{', '.join(answer.sources_used) if answer.sources_used else 'None'}</SOURCES>{tool_calls_section}
+<SOURCES>{', '.join(answer.sources_used) if answer.sources_used else 'None'}</SOURCES>{expected_sources_section}{reasoning_section}{tool_calls_section}
 
 Evaluate this answer on accuracy, completeness, and relevance to the question."""
 

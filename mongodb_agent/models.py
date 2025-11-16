@@ -1,7 +1,14 @@
-# Pydantic models for RAG Agent
-"""Pydantic models for pydantic-ai-based RAG system"""
+# Pydantic models for MongoDB Agent
+"""Pydantic models for pydantic-ai-based MongoDB Agent system"""
 
 from pydantic import BaseModel, Field
+
+# Constants for validation bounds
+MIN_CONFIDENCE = 0.0
+MAX_CONFIDENCE = 1.0
+MIN_SCORE = 0.0
+MAX_SCORE = 1.0
+MIN_TOKEN_COUNT = 0
 
 
 class SearchResult(BaseModel):
@@ -19,12 +26,15 @@ class SearchResult(BaseModel):
     )
 
 
-class RAGAnswer(BaseModel):
-    """Structured response from RAG system"""
+class SearchAnswer(BaseModel):
+    """Structured response from search system"""
 
     answer: str = Field(..., description="The answer to the user's question")
     confidence: float = Field(
-        ..., ge=0.0, le=1.0, description="Confidence in the answer (0.0 to 1.0)"
+        ...,
+        ge=MIN_CONFIDENCE,
+        le=MAX_CONFIDENCE,
+        description=f"Confidence in the answer ({MIN_CONFIDENCE} to {MAX_CONFIDENCE})",
     )
     sources_used: list[str] = Field(
         ..., description="List of source filenames used to generate the answer"
@@ -34,28 +44,53 @@ class RAGAnswer(BaseModel):
     )
 
 
+class SearchAgentResult(BaseModel):
+    """Result from MongoDB search agent query"""
+
+    answer: SearchAnswer = Field(..., description="The answer from the agent")
+    tool_calls: list[dict] = Field(
+        ..., description="List of tool calls made during the query"
+    )
+
+
 class TokenUsage(BaseModel):
     """Token usage information from LLM API calls"""
 
-    input_tokens: int = Field(..., ge=0, description="Number of input tokens used")
-    output_tokens: int = Field(..., ge=0, description="Number of output tokens used")
-    total_tokens: int = Field(..., ge=0, description="Total tokens used")
+    input_tokens: int = Field(
+        ..., ge=MIN_TOKEN_COUNT, description="Number of input tokens used"
+    )
+    output_tokens: int = Field(
+        ..., ge=MIN_TOKEN_COUNT, description="Number of output tokens used"
+    )
+    total_tokens: int = Field(..., ge=MIN_TOKEN_COUNT, description="Total tokens used")
 
 
 class JudgeEvaluation(BaseModel):
     """Judge evaluation output for answer quality assessment"""
 
     overall_score: float = Field(
-        ..., ge=0.0, le=1.0, description="Overall quality score (0.0 to 1.0)"
+        ...,
+        ge=MIN_SCORE,
+        le=MAX_SCORE,
+        description=f"Overall quality score ({MIN_SCORE} to {MAX_SCORE})",
     )
     accuracy: float = Field(
-        ..., ge=0.0, le=1.0, description="Factual correctness score (0.0 to 1.0)"
+        ...,
+        ge=MIN_SCORE,
+        le=MAX_SCORE,
+        description=f"Factual correctness score ({MIN_SCORE} to {MAX_SCORE})",
     )
     completeness: float = Field(
-        ..., ge=0.0, le=1.0, description="Answer thoroughness score (0.0 to 1.0)"
+        ...,
+        ge=MIN_SCORE,
+        le=MAX_SCORE,
+        description=f"Answer thoroughness score ({MIN_SCORE} to {MAX_SCORE})",
     )
     relevance: float = Field(
-        ..., ge=0.0, le=1.0, description="Answer relevance to question (0.0 to 1.0)"
+        ...,
+        ge=MIN_SCORE,
+        le=MAX_SCORE,
+        description=f"Answer relevance to question ({MIN_SCORE} to {MAX_SCORE})",
     )
     reasoning: str = Field(..., description="Brief explanation of the evaluation")
 
