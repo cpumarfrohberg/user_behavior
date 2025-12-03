@@ -29,7 +29,7 @@ dependencies = [
     "genai-prices>=0.0.47",
     "sqlalchemy>=2.0.0",
     "psycopg2-binary>=2.9.0",
-    "jaxn>=0.1.0",
+    "jaxn>=0.0.1",
 ]
 
 [project.scripts]

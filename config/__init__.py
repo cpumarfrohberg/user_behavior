@@ -156,7 +156,7 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 # PostgreSQL Configuration for Monitoring
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5432/user_behavior_monitoring",
+    "postgresql://postgres:postgres@localhost:5433/user_behavior_monitoring",
 )
 
 NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
