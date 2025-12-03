@@ -98,7 +98,6 @@ def collect_and_store(
 
 
 def main():
-    """Main entry point"""
     try:
         collect_and_store()
     except Exception as e:
