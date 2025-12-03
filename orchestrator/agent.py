@@ -84,6 +84,31 @@ class OrchestratorAgent:
             f"✅ Orchestrator completed. Used agents: {', '.join(result.output.agents_used)}"
         )
 
+        # Judge evaluation (optional)
+        if self.config.enable_judge_evaluation:
+            try:
+                from evals.judge import evaluate_orchestrator_answer
+
+                # Extract tool calls from result if available
+                tool_calls = []
+                # Note: pydantic-ai doesn't expose tool calls directly in result
+                # We'd need to track them via event handlers if needed
+                # For now, we'll pass None
+
+                judge_result = await evaluate_orchestrator_answer(
+                    question=question,
+                    answer=result.output,
+                    tool_calls=tool_calls,
+                )
+                logger.info(
+                    f"Judge evaluation: overall_score={judge_result.evaluation.overall_score:.2f}, "
+                    f"accuracy={judge_result.evaluation.accuracy:.2f}, "
+                    f"completeness={judge_result.evaluation.completeness:.2f}, "
+                    f"relevance={judge_result.evaluation.relevance:.2f}"
+                )
+            except Exception as e:
+                logger.warning(f"Judge evaluation failed: {e}")
+
         # Log agent run to database
         try:
             from monitoring.agent_logging import log_agent_run

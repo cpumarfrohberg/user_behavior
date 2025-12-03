@@ -36,6 +36,10 @@ class OrchestratorAnswerHandler(JSONParserHandler):
         self.sources_list: list[str] = []
         self.agents_list: list[str] = []
 
+        # Performance optimization: batch updates
+        self._update_counter = 0
+        self._update_interval = 10  # Update every N characters
+
     def reset(self) -> None:
         """Reset handler state for a new query"""
         self.current_answer = ""
@@ -43,6 +47,7 @@ class OrchestratorAnswerHandler(JSONParserHandler):
         self.current_reasoning = None
         self.sources_list = []
         self.agents_list = []
+        self._update_counter = 0
 
     def on_field_start(self, path: str, field_name: str) -> None:
         """Called when starting to read a field value"""
@@ -87,14 +92,16 @@ class OrchestratorAnswerHandler(JSONParserHandler):
     def on_value_chunk(self, path: str, field_name: str, chunk: str) -> None:
         """
         Called for each character as string values stream in.
-        Stream answer content as it arrives.
+        Stream answer content as it arrives with batched updates for performance.
         """
         if field_name == "answer" and path == "":
             # Accumulate answer text
             self.current_answer += chunk
-            # Update Streamlit container with current answer
-            if self.answer_container:
+            # Update UI periodically (not on every character) for better performance
+            self._update_counter += len(chunk)
+            if self._update_counter >= self._update_interval and self.answer_container:
                 self.answer_container.markdown(self.current_answer)
+                self._update_counter = 0
 
     def on_array_item_end(
         self, path: str, field_name: str, item: object | None = None

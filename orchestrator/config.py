@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 from config import (
+    ENABLE_ORCHESTRATOR_JUDGE,
     OPENAI_RAG_MODEL,
     InstructionType,
 )
@@ -17,4 +18,7 @@ class OrchestratorConfig:
     mongodb_agent_config: dict | None = None  # Configuration to pass to MongoDB Agent
     cypher_agent_config: dict | None = (
         None  # Configuration to pass to Cypher Query Agent
+    )
+    enable_judge_evaluation: bool = (
+        ENABLE_ORCHESTRATOR_JUDGE  # Enable LLM judge evaluation of synthesized answers
     )

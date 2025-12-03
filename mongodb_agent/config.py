@@ -17,7 +17,7 @@ class MongoDBConfig:
 
     openai_model: str = OPENAI_RAG_MODEL  # OpenAI model name (e.g., "gpt-4o-mini")
     instruction_type: InstructionType = InstructionType.MONGODB_AGENT
-    max_tool_calls: int = 5  # Maximum number of tool calls allowed (safety limit)
+    max_tool_calls: int = 10  # Maximum number of tool calls allowed (safety limit)
     mongo_uri: str = MONGODB_URI
     database: str = MONGODB_DB
     collection: str = "questions"  # Updated to match actual collection name

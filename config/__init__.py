@@ -163,6 +163,11 @@ NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "your_secure_password")
 
+# Orchestrator Configuration
+ENABLE_ORCHESTRATOR_JUDGE = (
+    os.getenv("ENABLE_ORCHESTRATOR_JUDGE", "false").lower() == "true"
+)
+
 # UX-related tags for relevance filtering
 UX_TAGS = [
     "usability",

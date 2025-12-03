@@ -4,12 +4,18 @@ import logging
 from typing import Any
 
 import streamlit as st
+from jaxn import StreamingJSONParser
+from pydantic_ai.messages import FunctionToolCallEvent
 
 from config import LOG_LEVEL
 from monitoring.db import get_cost_stats, get_recent_logs, init_db
 from orchestrator.agent import OrchestratorAgent
 from orchestrator.config import OrchestratorConfig
 from orchestrator.models import OrchestratorAnswer
+from stream_handler import OrchestratorAnswerHandler
+
+# Streaming performance constants
+STREAM_DEBOUNCE = 0.01  # Debounce streaming updates (seconds)
 
 # Configure logging
 logging.basicConfig(
@@ -22,23 +28,29 @@ st.set_page_config(page_title="User Behavior Agent", page_icon="🤖", layout="w
 
 # Initialize session state
 st.session_state.setdefault("messages", [])
-st.session_state.setdefault("db_initialized", False)
-st.session_state.setdefault("orchestrator_agent", None)
+st.session_state.setdefault("tool_calls", [])
+st.session_state.setdefault("last_result", None)
 
-# Initialize database
-if not st.session_state.db_initialized:
+
+# Cache database initialization (runs once per session)
+@st.cache_resource
+def _init_database():
+    """Initialize database - cached across reruns"""
     init_db()
-    st.session_state.db_initialized = True
+    return True
 
 
+# Initialize database (cached)
+_init_database()
+
+
+@st.cache_resource
 def _get_orchestrator_agent() -> OrchestratorAgent:
-    """Get or initialize Orchestrator Agent"""
-    if st.session_state.orchestrator_agent is None:
-        config = OrchestratorConfig()
-        agent = OrchestratorAgent(config)
-        agent.initialize()
-        st.session_state.orchestrator_agent = agent
-    return st.session_state.orchestrator_agent
+    """Get or initialize Orchestrator Agent - cached across reruns"""
+    config = OrchestratorConfig()
+    agent = OrchestratorAgent(config)
+    agent.initialize()
+    return agent
 
 
 async def run_agent_stream(
@@ -50,73 +62,90 @@ async def run_agent_stream(
     agents_container: Any,
     tool_calls_container: Any,
 ) -> OrchestratorAnswer | None:
-    """Run orchestrator agent with tool call tracking."""
-    agent_instance = _get_orchestrator_agent()
-    tool_calls_list = []
+    """Run orchestrator agent with streaming output and tool call tracking."""
+    orchestrator_agent = _get_orchestrator_agent()
+    st.session_state.tool_calls = []  # Reset tool calls for new query
 
-    def _handle_tool_call(tool_name: str, args: str) -> None:
-        """Handle tool call events"""
-        try:
-            args_dict = json.loads(args) if isinstance(args, str) else args
-            query = (
-                args_dict.get("question", args_dict.get("query", "N/A"))
-                if isinstance(args_dict, dict)
-                else str(args)
-            )[:50]
-        except (json.JSONDecodeError, AttributeError, TypeError):
-            query = str(args)[:50] if args else "N/A"
-        tool_calls_list.append({"tool_name": tool_name, "query": query})
-        tool_calls_text = "\n".join(
-            f"🔍 {i+1}. **{c['tool_name']}**: {c['query']}..."
-            for i, c in enumerate(tool_calls_list)
-        )
-        tool_calls_container.markdown(tool_calls_text)
+    # Initialize streaming JSON parser with handler
+    handler = OrchestratorAnswerHandler(
+        answer_container=answer_container,
+        confidence_container=confidence_container,
+        reasoning_container=reasoning_container,
+        sources_container=sources_container,
+        agents_container=agents_container,
+    )
+    handler.reset()
+    parser = StreamingJSONParser(handler)
 
-    def _create_tool_call_tracker() -> Any:
-        """Create tool call tracker for event handler"""
-        from pydantic_ai.messages import FunctionToolCallEvent
+    async def _handle_tool_call(ctx: Any, event: Any) -> None:
+        """Event handler to track and display tool calls."""
+        # Handle nested events (event streams)
+        if hasattr(event, "__aiter__"):
+            async for sub in event:
+                await _handle_tool_call(ctx, sub)
+            return
 
-        async def track_handler(ctx: Any, event: Any) -> None:
-            """Track tool calls and call callback"""
-            if hasattr(event, "__aiter__"):
-                async for sub in event:
-                    await track_handler(ctx, sub)
-                return
-
-            if isinstance(event, FunctionToolCallEvent):
-                tool_name = event.part.tool_name
-                args = event.part.args
-                _handle_tool_call(tool_name, args)
-
-        return track_handler
+        # Handle FunctionToolCallEvent
+        if isinstance(event, FunctionToolCallEvent):
+            tool_call = {
+                "tool_name": event.part.tool_name,
+                "args": event.part.args,
+            }
+            st.session_state.tool_calls.append(tool_call)
+            tool_calls_text = "\n".join(
+                f"🔍 {i+1}. **{c['tool_name']}**: {str(c['args'])[:50]}..."
+                for i, c in enumerate(st.session_state.tool_calls)
+            )
+            tool_calls_container.markdown(tool_calls_text)
 
     try:
-        # Run agent with tool call tracking
-        result = await agent_instance.agent.run(
-            question, event_stream_handler=_create_tool_call_tracker()
-        )
+        # Run agent with streaming
+        async with orchestrator_agent.agent.run_stream(
+            question, event_stream_handler=_handle_tool_call
+        ) as result:
+            # Stream responses and parse JSON incrementally with debouncing
+            async for item, last in result.stream_responses(
+                debounce_by=STREAM_DEBOUNCE
+            ):
+                for part in item.parts:
+                    # Extract text from streaming parts and feed to parser
+                    # pydantic-ai streams structured output as text parts
+                    if hasattr(part, "text") and part.text:
+                        try:
+                            parser.parse_incremental(part.text)
+                        except Exception:
+                            # Ignore parsing errors for incomplete JSON chunks
+                            # This is expected as JSON may be incomplete during streaming
+                            pass
 
-        # Display results
-        answer = result.output
-        if answer:
-            answer_container.markdown(answer.answer)
-            if answer.confidence is not None:
-                confidence_container.metric("Confidence", f"{answer.confidence:.2%}")
-            if answer.reasoning:
-                reasoning_container.markdown(f"**Reasoning:** {answer.reasoning}")
-            if answer.sources_used:
-                sources_text = "\n".join(f"- {s}" for s in answer.sources_used)
-                sources_container.markdown(f"**Sources:**\n{sources_text}")
-            if answer.agents_used:
-                agents_text = ", ".join(answer.agents_used)
-                agents_container.markdown(f"**Agents Used:** {agents_text}")
+            # Get final output (must await for streamed results)
+            final_output: OrchestratorAnswer = await result.get_output()
+        st.session_state.last_result = final_output
 
-        st.session_state.last_result = answer
-        st.session_state.tool_calls = tool_calls_list
-        return answer
+        # Ensure all containers are updated with final values
+        if handler.answer_container and handler.current_answer:
+            handler.answer_container.markdown(handler.current_answer)
+        if handler.confidence_container and handler.current_confidence is not None:
+            handler.confidence_container.metric(
+                "Confidence", f"{handler.current_confidence:.2%}"
+            )
+        if handler.reasoning_container and handler.current_reasoning:
+            handler.reasoning_container.markdown(
+                f"**Reasoning:** {handler.current_reasoning}"
+            )
+        if handler.sources_container and handler.sources_list:
+            sources_text = "\n".join(f"- {s}" for s in handler.sources_list)
+            handler.sources_container.markdown(f"**Sources:**\n{sources_text}")
+        if handler.agents_container and handler.agents_list:
+            agents_text = ", ".join(handler.agents_list)
+            handler.agents_container.markdown(f"**Agents Used:** {agents_text}")
+
+        return final_output
     except Exception as e:
-        logging.error(f"Error running agent: {e}", exc_info=True)
-        st.error(f"Error: {e}")
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error during agent execution: {e}", exc_info=True)
+        st.error(f"⚠️ An error occurred: {e}")
+        st.info("Please try again or rephrase your question.")
         return None
 
 
@@ -126,15 +155,9 @@ def main() -> None:
     with st.sidebar:
         st.header("Navigation")
         nav = st.radio(
-            "Page", ["Chat", "Monitoring", "About"], label_visibility="collapsed"
+            "Select a page", ["About", "Chat", "Monitoring"], label_visibility="visible"
         )
         st.divider()
-
-        if nav == "Chat":
-            if st.button("🗑️ Clear Chat", use_container_width=True):
-                st.session_state.messages = []
-                st.session_state.last_result = None
-                st.rerun()
 
     if nav == "About":
         _render_about_page()
@@ -167,8 +190,26 @@ def _render_about_page() -> None:
 
 
 def _render_chat_page() -> None:
+    with st.sidebar:
+        st.header("Configuration")
+        if st.button("🗑️ Clear Chat History", use_container_width=True):
+            st.session_state.messages = []
+            st.session_state.tool_calls = []
+            st.session_state.last_result = None
+            st.rerun()
+        st.divider()
+        st.header("Statistics")
+        result = st.session_state.get("last_result")
+        if result:
+            if hasattr(result, "confidence") and result.confidence is not None:
+                st.metric("Confidence", f"{result.confidence:.2%}")
+            if hasattr(result, "agents_used") and result.agents_used:
+                st.markdown(f"**Agents Used:** {', '.join(result.agents_used)}")
+        else:
+            st.info("No queries yet. Ask a question to see stats.")
+
     if not st.session_state.messages:
-        st.info("👋 Ask a question about user behavior patterns!")
+        st.info("👋 Start a conversation by asking a question about user behavior!")
 
     # Display chat history
     for message in st.session_state.messages:
@@ -185,7 +226,7 @@ def _render_chat_page() -> None:
             # Create containers for streaming
             answer_container = st.empty()
             tool_calls_container = st.empty()
-            tool_calls_container.info("🤖 Processing...")
+            tool_calls_container.info("🤖 Agent is processing your question...")
 
             col1, col2 = st.columns([2, 1])
             with col1:
@@ -209,12 +250,28 @@ def _render_chat_page() -> None:
                 )
 
                 if result:
+                    # Save answer to chat history
                     st.session_state.messages.append(
                         {"role": "assistant", "content": result.answer}
                     )
+                    # Clear processing message
+                    tool_calls_container.empty()
             except Exception as e:
                 st.error(f"Error: {e}")
                 logging.error(f"Error in chat: {e}", exc_info=True)
+                tool_calls_container.empty()
+
+
+@st.cache_data(ttl=30)  # Cache for 30 seconds to reduce DB queries
+def _get_cached_cost_stats():
+    """Get cost statistics with caching"""
+    return get_cost_stats()
+
+
+@st.cache_data(ttl=30)  # Cache for 30 seconds to reduce DB queries
+def _get_cached_recent_logs(limit: int = 20):
+    """Get recent logs with caching"""
+    return get_recent_logs(limit=limit)
 
 
 def _render_monitoring_page() -> None:
@@ -223,7 +280,7 @@ def _render_monitoring_page() -> None:
     # Cost Statistics
     st.subheader("💰 Cost Statistics")
     try:
-        stats = get_cost_stats()
+        stats = _get_cached_cost_stats()
         if stats:
             col1, col2, col3 = st.columns(3)
             col1.metric("Total Cost", f"${stats['total_cost']:.4f}")
@@ -239,7 +296,7 @@ def _render_monitoring_page() -> None:
     # Recent Logs
     st.subheader("📝 Recent Logs")
     try:
-        logs = get_recent_logs(limit=20)
+        logs = _get_cached_recent_logs(limit=20)
         if logs:
             for log in logs:
                 with st.expander(

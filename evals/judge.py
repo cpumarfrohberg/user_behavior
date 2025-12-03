@@ -16,6 +16,7 @@ from config import (
 )
 from config.instructions import InstructionsConfig, InstructionType
 from mongodb_agent.models import JudgeEvaluation, JudgeResult, SearchAnswer, TokenUsage
+from orchestrator.models import OrchestratorAnswer
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +164,102 @@ Evaluate this answer on accuracy, completeness, and relevance to the question.""
         f"Evaluating answer for question: {question[:MAX_QUESTION_LOG_LENGTH]}..."
     )
     print("⚖️  Judge is evaluating the answer...")
+
+    # Run judge evaluation with retry logic
+    result = await _run_judge_with_retry(judge_agent, evaluation_prompt, max_retries)
+
+    score_format = f".{SCORE_DECIMAL_PLACES}f"
+    logger.info(
+        f"Judge evaluation complete. Overall score: {result.evaluation.overall_score:{score_format}}, "
+        f"Tokens: {result.usage.total_tokens}"
+    )
+    print(
+        f"✅ Judge evaluation complete. Overall score: {result.evaluation.overall_score:{score_format}}"
+    )
+
+    return result
+
+
+async def evaluate_orchestrator_answer(
+    question: str,
+    answer: OrchestratorAnswer,
+    tool_calls: Optional[list[dict]] = None,
+    expected_sources: Optional[list[str]] = None,
+    judge_model: str = DEFAULT_JUDGE_MODEL,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+) -> JudgeResult:
+    """
+    Evaluate orchestrator synthesized answer quality using LLM-as-a-Judge.
+
+    Args:
+        question: The original question asked
+        answer: The OrchestratorAnswer from the orchestrator
+        tool_calls: Optional list of tool calls made (for context)
+        expected_sources: Optional list of expected source IDs (from ground truth)
+        judge_model: Model to use for judging (default: DEFAULT_JUDGE_MODEL)
+        max_retries: Maximum number of retry attempts (default: DEFAULT_MAX_RETRIES)
+
+    Returns:
+        JudgeResult containing evaluation and usage
+    """
+    instructions = InstructionsConfig.INSTRUCTIONS[InstructionType.JUDGE]
+
+    model = OpenAIChatModel(
+        model_name=judge_model,
+        provider=OpenAIProvider(),
+    )
+    logger.info(f"Using judge model: {judge_model}")
+
+    judge_agent = Agent(
+        name="judge",
+        model=model,
+        instructions=instructions,
+        output_type=JudgeEvaluation,
+        model_settings=ModelSettings(
+            max_tokens=DEFAULT_MAX_TOKENS,
+            temperature=DEFAULT_JUDGE_TEMPERATURE,
+        ),
+    )
+
+    # Build tool calls section
+    tool_calls_section = ""
+    if tool_calls:
+        tool_calls_section = f"""
+<TOOL_CALLS>
+{json.dumps(tool_calls, indent=JSON_INDENT)}
+</TOOL_CALLS>"""
+
+    # Build expected sources section
+    expected_sources_section = ""
+    if expected_sources:
+        expected_sources_section = f"""
+<EXPECTED_SOURCES>{', '.join(expected_sources)}</EXPECTED_SOURCES>"""
+
+    # Build reasoning section if available
+    reasoning_section = ""
+    if answer.reasoning:
+        reasoning_section = f"""
+<REASONING>{answer.reasoning}</REASONING>"""
+
+    # Build agents used section (specific to orchestrator)
+    agents_section = ""
+    if answer.agents_used:
+        agents_section = f"""
+<AGENTS_USED>{', '.join(answer.agents_used)}</AGENTS_USED>"""
+
+    # Prepare evaluation prompt with XML tags (best practice from Evidently AI)
+    evaluation_prompt = f"""<QUESTION>{question}</QUESTION>
+
+<ANSWER>{answer.answer}</ANSWER>
+
+<SOURCES>{', '.join(answer.sources_used) if answer.sources_used else 'None'}</SOURCES>{expected_sources_section}{reasoning_section}{agents_section}{tool_calls_section}
+
+Evaluate this synthesized answer on accuracy, completeness, and relevance to the question. This answer was synthesized from multiple agents ({', '.join(answer.agents_used) if answer.agents_used else 'unknown'}). Consider how well the orchestrator combined information from different sources."""
+
+    logger.info(
+        f"Evaluating orchestrator answer for question: {question[:MAX_QUESTION_LOG_LENGTH]}..."
+    )
+    print("⚖️  Judge is evaluating the synthesized answer...")
 
     # Run judge evaluation with retry logic
     result = await _run_judge_with_retry(judge_agent, evaluation_prompt, max_retries)

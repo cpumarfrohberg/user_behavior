@@ -1,231 +1,87 @@
-# Implementation Plan: Incremental Storage, Streamlit UI, Logging, and Cypher Query Agent
+# Implementation Plan: Remaining Features
 
 ## Overview
 
-This plan extends the existing user behavior analysis system with:
-1. **Incremental Storage**: Store questions in MongoDB as they're collected (from `INCREMENTAL_STORAGE_PLAN.md`)
-2. **Streamlit UI**: Interactive web interface for querying agents
-3. **Logging & Cost Tracking**: Track function calls, token usage, and costs
-4. **Cypher Query Agent**: Agent that translates prompts to Cypher queries and queries Neo4j
-5. **Evaluation**: Framework to evaluate the Cypher Query Agent
+This plan covers the remaining features to be implemented for the user behavior analysis system.
+
+**Already Completed:**
+- ✅ Phase 1: Incremental Storage
+- ✅ Phase 2: Logging & Cost Tracking Infrastructure
+- ✅ Phase 3: Streamlit UI with streaming support
+- ✅ Basic caching optimizations
+
+**Still To Do:**
+1. **Performance Optimization**: Address execution speed bottlenecks (do this first!)
+2. **Cypher Query Agent**: Agent that translates prompts to Cypher queries and queries Neo4j
+3. **Evaluation**: Framework to evaluate the Cypher Query Agent
+4. **Guardrails**: Safety and quality controls for agents
+5. **Local LLM Support**: Future enhancement for cloud deployment
 
 ---
 
-## Phase 1: Incremental Storage Implementation
+## Phase 1: Performance Optimization
 
-### 1.1 Modify `search_questions()` Method
+See `PERFORMANCE_OPTIMIZATION_ISSUE.md` for detailed analysis and solutions.
 
-**File:** `stream_stackexchange/collector.py`
+### 1.1 Quick Wins
 
-**Current behavior:**
-- Collects all questions in `all_questions` list
-- Returns list at the end
-- No storage during collection
+**1.1.1 Async Database Logging**
+- **File**: `monitoring/agent_logging.py`
+- Move database logging to background task using `asyncio.create_task()`
+- Don't await logging completion
+- **Expected Impact**: ~100-500ms improvement per query
 
-**Changes needed:**
-1. Change return type from `list[Question]` to `int` (total stored count)
-2. Remove `all_questions = []` accumulation
-3. Add `total_stored = 0` counter
-4. Collect questions per page in `page_questions` list (not accumulating across pages)
-5. After processing each page, store immediately:
-   - Extract relevant questions from current page
-   - Call `self.storage.store_questions(page_questions)` immediately
-   - Track `total_stored += stored_count`
-   - Print progress: `💾 Stored {stored_count} questions from page {page} (total: {total_stored})`
-6. Wrap storage call in try-except per page to continue on errors
-7. Update docstring to reflect new behavior
+**1.1.2 Optimize `get_output()` Call**
+- **File**: `streamlit_app.py`
+- Check if we can construct output from handler state instead
+- Or cache parsed output during streaming
+- Only call `get_output()` if handler parsing failed
+- **Expected Impact**: ~50-200ms improvement
 
-**Code structure:**
-```python
-def search_questions(...) -> int:  # Changed return type
-    total_stored = 0
-    for page in range(1, pages + 1):
-        try:
-            # ... fetch page ...
-            # ... validate and extract questions ...
+**1.1.3 Reduce MongoDB Tool Calls**
+- **File**: `mongodb_agent/config.py`, `config/instructions.py`
+- Reduce max_tool_calls from 10 to 7
+- Improve MongoDB agent instructions to be more decisive
+- Optimize search queries to be more targeted
+- **Expected Impact**: ~30-40% reduction in MongoDB agent execution time
 
-            page_questions = []  # Collect questions for this page only
-            relevant_count = 0
-            for question_dict in questions:
-                if not is_relevant(question_dict):
-                    continue
-                question = extract_question(question_dict, site, self.api_client)
-                if question:
-                    page_questions.append(question)
-                    relevant_count += 1
+### 1.2 High Impact Optimizations
 
-            # Store immediately after processing page
-            if page_questions:
-                try:
-                    stored_count = self.storage.store_questions(page_questions)
-                    total_stored += stored_count
-                    print(f"   💾 Stored {stored_count} questions from page {page} (total: {total_stored})")
-                except Exception as e:
-                    print(f"   ⚠️  Error storing page {page}: {e}")
-                    # Continue to next page even if storage fails
-        except Exception as e:
-            print(f"Error fetching page {page}: {e}")
-            continue
+**1.2.1 Parallel Agent Execution**
+- **Files**: `orchestrator/agent.py`, `orchestrator/tools.py`
+- Modify orchestrator to detect when both agents are needed
+- Use `asyncio.gather()` to run MongoDB and Cypher agents concurrently
+- Combine results after both complete
+- **Expected Impact**: ~50% reduction in time when both agents are called
 
-    return total_stored  # Return count instead of list
-```
+**1.2.2 Optimize Tool Call Strategy**
+- **Files**: `mongodb_agent/agent.py`, `config/instructions.py`
+- Improve agent instructions to make better initial search decisions
+- Use search result quality to decide if more searches needed
+- Consider batching multiple searches when possible
+- **Expected Impact**: ~20-30% reduction in tool call overhead
 
-### 1.2 Simplify `collect_and_store()` Method
+### 1.3 Testing and Monitoring
 
-**File:** `stream_stackexchange/collector.py`
+**1.3.1 Add Performance Metrics**
+- Log timing for each phase (orchestrator, MongoDB agent, tool calls, etc.)
+- Track number of API calls and tool calls
+- Monitor database logging time
 
-**Current behavior:**
-- Calls `search_questions()` to get list
-- Then stores all at once
+**1.3.2 Baseline Measurement**
+- Measure current execution time for typical queries
+- Document metrics before optimizations
 
-**Changes needed:**
-1. `search_questions()` now handles storage, so simplify this method
-2. Change: `questions = self.search_questions(...)` → `total_stored = self.search_questions(...)`
-3. Remove the `if questions:` block that calls `store_questions()`
-4. Update final print: `print(f"✅ Total stored: {total_stored} documents")`
-5. Update docstring
-
-**Code structure:**
-```python
-def collect_and_store(...):
-    total_stored = self.search_questions(site, tag, pages)  # Already stores as it goes
-    if total_stored > 0:
-        print(f"✅ Total stored: {total_stored} documents")
-    else:
-        print("No questions collected")
-```
-
-### 1.3 Error Handling Improvements
-
-**File:** `stream_stackexchange/collector.py`
-
-**Changes needed:**
-1. Wrap storage call in try-except per page (already in 1.1)
-2. Continue to next page if storage fails for one page
-3. Log which pages failed with error message
-4. Return partial success (count of successfully stored pages)
-5. Add error logging: `print(f"⚠️  Error storing page {page}: {e}")`
-
-### 1.4 Progress Messages
-
-**File:** `stream_stackexchange/collector.py`
-
-**Changes needed:**
-1. Add storage progress message after each page
-2. Show running total: `(total: {total_stored})`
-3. Add summary at end with final count
-4. Keep existing fetch/validation messages
-
-**New messages:**
-- `💾 Stored {count} questions from page {page} (total: {total})`
-- `✅ Collection complete: {total} documents stored`
+**1.3.3 After Each Optimization**
+- Measure improvement
+- Verify functionality still works
+- Check for regressions
 
 ---
 
-## Phase 2: Logging and Cost Tracking Infrastructure
+## Phase 2: Cypher Query Agent Implementation
 
-### 2.1 Add Dependencies
-
-**File:** `pyproject.toml`
-
-- Add `genai-prices` for cost calculation
-- Add `sqlalchemy` for database ORM
-- Add `psycopg2-binary` or `asyncpg` for PostgreSQL support
-- Add `jaxn` for streaming JSON parsing (if not already present)
-
-### 2.2 Create Monitoring Database Module
-
-**New File:** `monitoring/__init__.py`
-**New File:** `monitoring/db.py`
-**New File:** `monitoring/schemas.py`
-
-- Create PostgreSQL database schema using SQLAlchemy
-- Tables: `llm_logs`, `eval_checks`, `guardrail_events`
-- Functions: `init_db()`, `insert_log()`, `get_recent_logs()`, `get_cost_stats()`
-- Pydantic schemas: `LogCreate`, `LogResponse`, `LogSummaryResponse`
-- Use PostgreSQL connection string from environment (DATABASE_URL)
-- Reference: `~/projects/projects_action/AI_Bootcamp/own/ai-bootcamp-krlz/homework/homework_week4/wikiagent/monitoring/`
-
-### 2.3 Create Agent Logging Module
-
-**New File:** `monitoring/agent_logging.py`
-
-- Function: `save_log_to_db(agent, result, question)` - saves agent run to database
-- Function: `_calc_cost(provider, model, input_tokens, output_tokens)` - calculates cost using genai_prices
-- Function: `_create_log_entry(agent, messages, usage, output)` - extracts log data
-- Function: `_log_agent_run(agent, result)` - unified logging for streaming runs
-- Reference: `~/projects/projects_action/AI_Bootcamp/own/ai-bootcamp-krlz/homework/homework_week4/wikiagent/agent_logging.py`
-
-### 2.4 Update Config
-
-**File:** `config/__init__.py`
-
-- Add `DATABASE_URL` environment variable (default: PostgreSQL connection string)
-- Default: `postgresql://postgres:postgres@localhost:5432/user_behavior_monitoring`
-- Add database initialization on module load
-
-### 2.5 Add PostgreSQL to Docker Compose
-
-**File:** `docker-compose.yml`
-
-- Add PostgreSQL service:
-  - Image: `postgres:15-alpine`
-  - Ports: `5432:5432`
-  - Environment: `POSTGRES_USER=postgres`, `POSTGRES_PASSWORD=postgres`, `POSTGRES_DB=user_behavior_monitoring`
-  - Volumes: `postgres_data:/var/lib/postgresql/data`
-- Add `postgres_data` volume
-
-### 2.6 Integrate Logging into Existing Agents
-
-**Files:** `mongodb_agent/agent.py`, `orchestrator/agent.py`
-
-- Import `log_agent_run` from `monitoring.agent_logging`
-- After agent query completes, call `await log_agent_run(agent, result, question)`
-- Handle errors gracefully (log but don't fail agent execution)
-
----
-
-## Phase 3: Streamlit UI Implementation
-
-### 3.1 Create Streamlit Application
-
-**New File:** `streamlit_app.py`
-
-**Structure:**
-- Navigation sidebar: Chat, Monitoring, About, Settings
-- Chat page: Interactive chat interface with streaming responses
-- Monitoring page: Cost statistics and recent logs
-- Settings page: Configuration options
-
-**Features:**
-- Real-time streaming of agent responses
-- Tool calls display during execution
-- Token usage and cost metrics
-- Chat history persistence in session state
-- Error handling and user feedback
-
-**Reference:** `~/projects/projects_action/wikipagent/streamlit_app.py` and `~/projects/projects_action/AI_Bootcamp/own/ai-bootcamp-krlz/homework/homework_week4/streamlit_app.py`
-
-### 3.2 Create Stream Handler
-
-**New File:** `stream_handler.py` (or integrate into existing structure)
-
-- Handle streaming JSON parsing for structured output
-- Update UI containers in real-time
-- Track tool calls and display them
-
-### 3.3 Update CLI to Support Streamlit
-
-**File:** `cli.py`
-
-- Add command: `streamlit run streamlit_app.py` or create wrapper
-- Or add to README instructions
-
----
-
-## Phase 4: Cypher Query Agent Implementation
-
-### 4.1 Create Cypher Query Agent Module
+### 2.1 Create Cypher Query Agent Module
 
 **New File:** `cypher_agent/__init__.py`
 **New File:** `cypher_agent/config.py`
@@ -239,7 +95,7 @@ def collect_and_store(...):
 - `CypherAgentResult`: Result model with answer and tool calls
 - `CypherQueryAgent`: Main agent class
 
-### 4.2 Implement Neo4j Connection
+### 2.2 Implement Neo4j Connection
 
 **File:** `cypher_agent/tools.py`
 
@@ -249,7 +105,7 @@ def collect_and_store(...):
 - Return results as structured data
 - Add query validation/sanitization
 
-### 4.3 Implement Agent Class
+### 2.3 Implement Agent Class
 
 **File:** `cypher_agent/agent.py`
 
@@ -260,7 +116,7 @@ def collect_and_store(...):
 - Output type: `CypherAnswer` (with answer, confidence, reasoning, sources)
 - Track tool calls similar to MongoDB agent
 
-### 4.4 Update Orchestrator
+### 2.4 Update Orchestrator
 
 **File:** `orchestrator/tools.py`
 
@@ -269,7 +125,7 @@ def collect_and_store(...):
 - Call agent and return structured response
 - Handle errors and return appropriate dict format
 
-### 4.5 Add Cypher Agent Models
+### 2.5 Add Cypher Agent Models
 
 **File:** `cypher_agent/models.py`
 
@@ -279,9 +135,9 @@ def collect_and_store(...):
 
 ---
 
-## Phase 5: Evaluation Framework for Cypher Agent
+## Phase 3: Evaluation Framework for Cypher Agent
 
-### 5.1 Create Ground Truth for Cypher Queries
+### 3.1 Create Ground Truth for Cypher Queries
 
 **New File:** `evals/generate_cypher_ground_truth.py`
 
@@ -289,7 +145,7 @@ def collect_and_store(...):
 - Expected Cypher queries or expected results
 - Store in JSON format similar to MongoDB ground truth
 
-### 5.2 Extend Evaluation Framework
+### 3.2 Extend Evaluation Framework
 
 **File:** `evals/evaluate.py`
 
@@ -298,7 +154,7 @@ def collect_and_store(...):
 - Use judge for answer quality (reuse existing judge)
 - Calculate metrics: query_success_rate, result_accuracy, query_complexity
 
-### 5.3 Add Cypher-Specific Metrics
+### 3.3 Add Cypher-Specific Metrics
 
 **New File:** `evals/cypher_metrics.py`
 
@@ -306,7 +162,7 @@ def collect_and_store(...):
 - Function: `compare_query_results(expected, actual)` - compare graph results
 - Function: `calculate_query_efficiency(query, execution_time)` - performance metric
 
-### 5.4 Update CLI
+### 3.4 Update CLI
 
 **File:** `cli.py`
 
@@ -315,9 +171,9 @@ def collect_and_store(...):
 
 ---
 
-## Phase 6: Integration and Testing
+## Phase 4: Integration and Testing
 
-### 6.1 Update Dependencies
+### 4.1 Update Dependencies
 
 **File:** `pyproject.toml`
 
@@ -325,7 +181,7 @@ def collect_and_store(...):
 - Add `psycopg2-binary` or `asyncpg` for PostgreSQL
 - Update version constraints if needed
 
-### 6.2 Update Docker Compose
+### 4.2 Update Docker Compose
 
 **File:** `docker-compose.yml`
 
@@ -333,31 +189,26 @@ def collect_and_store(...):
 - Ensure all services (MongoDB, Neo4j, PostgreSQL) work together
 - Add health checks if needed
 
-### 6.3 Update Documentation
+### 4.3 Update Documentation
 
 **File:** `README.md`
 
-- Add Streamlit UI usage instructions
 - Add Cypher Query Agent documentation
-- Add monitoring/logging section
 - Update architecture diagram
-- Add PostgreSQL setup instructions
-- Document local development workflow (no API keys in cloud)
+- Document integration with existing agents
 
-### 6.4 Integration Testing
+### 4.4 Integration Testing
 
-- Test incremental storage with small page count
-- Test Streamlit UI with all agents
-- Test logging captures all agent runs
 - Test Cypher agent with various query types
-- Test evaluation framework
-- Test PostgreSQL connection and persistence
+- Test orchestrator routing to Cypher agent
+- Test evaluation framework for Cypher agent
+- Test end-to-end flow with all agents
 
 ---
 
-## Phase 7: Guardrails Implementation
+## Phase 5: Guardrails Implementation
 
-### 7.1 Create Guardrails Module Structure
+### 5.1 Create Guardrails Module Structure
 
 **New File:** `guardrails/__init__.py`
 **New File:** `guardrails/checks.py`
@@ -404,7 +255,7 @@ async def run_with_guardrails(agent_coroutine, guardrails):
         raise
 ```
 
-### 7.2 Create Guardrail Check Functions
+### 5.2 Create Guardrail Check Functions
 
 **File:** `guardrails/checks.py`
 
@@ -422,7 +273,7 @@ async def run_with_guardrails(agent_coroutine, guardrails):
    - Checks confidence threshold if available
    - Raises `GuardrailException` if quality too low
 
-### 7.3 Create Guardrail Configuration
+### 5.3 Create Guardrail Configuration
 
 **File:** `guardrails/config.py`
 
@@ -430,7 +281,7 @@ async def run_with_guardrails(agent_coroutine, guardrails):
 - Configuration for: input validation, cost control, output quality
 - Settings: prohibited topics, max tokens, max time, min confidence
 
-### 7.4 Integrate into MongoDB Agent
+### 5.4 Integrate into MongoDB Agent
 
 **File:** `mongodb_agent/agent.py`
 
@@ -452,7 +303,7 @@ else:
     result = await agent_coroutine
 ```
 
-### 7.5 Integrate into Orchestrator Agent
+### 5.5 Integrate into Orchestrator Agent
 
 **File:** `orchestrator/agent.py`
 
@@ -461,7 +312,7 @@ else:
 - Wrap `self.agent.run()` call in `run_with_guardrails()` if guardrails provided
 - Update method signature: `async def query(self, question: str, guardrails: list = None) -> OrchestratorAnswer`
 
-### 7.6 Integrate into Cypher Agent
+### 5.6 Integrate into Cypher Agent
 
 **File:** `cypher_agent/agent.py`
 
@@ -470,7 +321,7 @@ else:
 - Wrap `self.agent.run()` call in `run_with_guardrails()` if guardrails provided
 - Similar pattern to MongoDB and Orchestrator agents
 
-### 7.7 Update CLI to Support Guardrails
+### 5.7 Update CLI to Support Guardrails
 
 **File:** `cli.py`
 
@@ -479,7 +330,7 @@ else:
 - Create helper function to build guardrail list from config
 - Pass guardrails to agent query methods
 
-### 7.8 Update Tests
+### 5.8 Update Tests
 
 **Files:** `tests/mongodb_agent/test_agent.py`, `tests/orchestrator/test_agent.py`
 
@@ -491,9 +342,9 @@ else:
 
 ---
 
-## Phase 8: Future - Local LLM Support (Post-MVP)
+## Phase 6: Local LLM Support (Future Enhancement)
 
-### 8.1 Architecture for Local LLMs
+### 6.1 Architecture for Local LLMs
 
 **Note:** This phase will be implemented after the first version is complete.
 
@@ -527,12 +378,6 @@ else:
 ## File Structure Summary
 
 **New Files:**
-- `streamlit_app.py`
-- `stream_handler.py` (or integrate into existing)
-- `monitoring/__init__.py`
-- `monitoring/db.py`
-- `monitoring/schemas.py`
-- `monitoring/agent_logging.py`
 - `cypher_agent/__init__.py`
 - `cypher_agent/config.py`
 - `cypher_agent/models.py`
@@ -545,15 +390,15 @@ else:
 - `guardrails/config.py`
 
 **Modified Files:**
-- `stream_stackexchange/collector.py` (incremental storage)
-- `mongodb_agent/agent.py` (add logging, add guardrails support)
-- `orchestrator/agent.py` (add logging, add guardrails support)
+- `mongodb_agent/agent.py` (add guardrails support)
+- `orchestrator/agent.py` (add guardrails support, parallel execution)
 - `cypher_agent/agent.py` (add guardrails support)
-- `orchestrator/tools.py` (implement Cypher agent call)
+- `orchestrator/tools.py` (implement Cypher agent call, parallel execution)
+- `monitoring/agent_logging.py` (async logging)
+- `mongodb_agent/config.py` (reduce max_tool_calls, optimize instructions)
+- `config/instructions.py` (improve MongoDB agent instructions)
+- `streamlit_app.py` (optimize get_output)
 - `cli.py` (add guardrails flags, add evaluation commands)
-- `config/__init__.py` (add DATABASE_URL)
-- `pyproject.toml` (add dependencies)
-- `docker-compose.yml` (add PostgreSQL)
 - `evals/evaluate.py` (extend for Cypher)
 - `README.md` (update documentation)
 
@@ -561,14 +406,12 @@ else:
 
 ## Implementation Order
 
-1. **Phase 1**: Incremental Storage (quick win, unblocks data collection)
-2. **Phase 2**: Logging Infrastructure (foundation for monitoring)
-3. **Phase 3**: Streamlit UI (user-facing interface)
-4. **Phase 4**: Cypher Query Agent (core functionality)
-5. **Phase 5**: Evaluation Framework (quality assurance)
-6. **Phase 6**: Integration and Testing (polish and validation)
-7. **Phase 7**: Guardrails Implementation (safety and quality controls)
-8. **Phase 8**: Local LLM Support (future enhancement)
+1. **Phase 1**: Performance Optimization (address execution speed issues - do this first!)
+2. **Phase 2**: Cypher Query Agent (core functionality)
+3. **Phase 3**: Evaluation Framework (quality assurance)
+4. **Phase 4**: Integration and Testing (polish and validation)
+5. **Phase 5**: Guardrails Implementation (safety and quality controls)
+6. **Phase 6**: Local LLM Support (future enhancement)
 
 ---
 
@@ -583,6 +426,7 @@ else:
 - Local development: Users run `docker-compose up` locally, no API keys pushed to Streamlit Cloud
 - Future v2: Local LLM support will enable cloud deployment without API credentials
 - Guardrails implementation is included as Phase 7 with full integration into all agents
+- **Performance**: Current implementation has performance bottlenecks in sequential agent execution - see Phase 8 and `PERFORMANCE_OPTIMIZATION_ISSUE.md` for optimization strategies
 
 ---
 
@@ -620,8 +464,10 @@ postgres:
 
 ---
 
+
 ## Related Documentation
 
 - `INCREMENTAL_STORAGE_PLAN.md` - Detailed incremental storage implementation
 - `GUARDRAILS_IMPLEMENTATION_PLAN.md` - Guardrails feature (future phase)
 - `search_agent_architecture_analysis.md` - MongoDB agent optimization notes
+- `PERFORMANCE_OPTIMIZATION_ISSUE.md` - Performance optimization issue and solutions

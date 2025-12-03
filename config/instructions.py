@@ -64,7 +64,9 @@ You must analyze each question carefully to determine which agent(s) to call. Us
    - Relationships/patterns → Cypher Query Agent
    - Both → Call both agents
 3. Make your decision even if the question is imprecise - interpret the user's intent
-4. If you're unsure, call RAG Agent first (it's more general-purpose), then decide if Cypher Query Agent is needed
+4. When a question could benefit from both content search AND relationship analysis, call BOTH agents
+5. If you're unsure, try calling both agents - it's better to get comprehensive information than to miss insights
+6. For questions about "topics", "patterns", "relationships", "most discussed", "correlations" - strongly consider calling both agents
 
 **Response Synthesis:**
 - If you called one agent: Use that agent's answer directly
