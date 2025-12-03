@@ -8,24 +8,23 @@ services:
     environment:
       - MONGO_INITDB_DATABASE=user_behavior
 
-  neo4j:
-    image: neo4j:5-community
-    ports:
-      - "7474:7474"  # HTTP
-      - "7687:7687"  # Bolt
-    volumes:
-      - neo4j_data:/data
-      - neo4j_logs:/logs
+  neo4j_etl:
+    build:
+      context: .
+      dockerfile: Dockerfile.etl
+    depends_on:
+      mongodb:
+        condition: service_started
     environment:
-      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-your_secure_password}
-      - NEO4J_PLUGINS=apoc
-
-  # Ollama is now running locally (not in Docker)
-  # Install locally: brew install ollama
-  # Start locally: ollama serve (or it auto-starts on Mac)
-  # Pull models: ollama pull llama3.2:3b
+      - MONGO_URI=mongodb://mongodb:27017
+      - MONGO_DB_NAME=${MONGO_DB_NAME:-stackexchange}
+      - MONGO_COLLECTION_NAME=${MONGO_COLLECTION_NAME:-questions}
+      - NEO4J_URI=${NEO4J_URI}
+      - NEO4J_USER=${NEO4J_USER:-neo4j}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-your_secure_password}
+    volumes:
+      - .:/app
+    command: python neo4j_etl/src/dump_stackexchange_payload.py
 
 volumes:
   mongodb_data:
-  neo4j_data:
-  neo4j_logs:

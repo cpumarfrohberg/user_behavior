@@ -23,6 +23,7 @@ from evals.generate_ground_truth import (
 )
 from mongodb_agent.agent import MongoDBSearchAgent
 from mongodb_agent.config import MongoDBConfig
+from stream_stackexchange.collector import collect_and_store
 
 app = typer.Typer()
 
@@ -81,6 +82,38 @@ def _print_answer(result: Any, question: str, verbose: bool = False) -> None:
         typer.echo("\n📚 Sources:")
         for i, source in enumerate(result.answer.sources_used[:10], 1):
             typer.echo(f"  {i}. {source}")
+
+
+@app.command()
+def collect(
+    pages: int = typer.Option(
+        5,
+        "--pages",
+        "-p",
+        help="Number of pages to fetch (default: 5)",
+    ),
+    site: str = typer.Option(
+        None,
+        "--site",
+        "-s",
+        help="StackExchange site (default: from config)",
+    ),
+    tag: str = typer.Option(
+        None,
+        "--tag",
+        "-t",
+        help="Tag to filter by (default: from config)",
+    ),
+):
+    """Collect questions from StackExchange API and store in MongoDB"""
+    try:
+        typer.echo("📥 Starting data collection from StackExchange...")
+        total_stored = collect_and_store(site=site, tag=tag, pages=pages)
+        typer.echo(
+            f"\n✅ Collection complete: {total_stored} questions stored in MongoDB"
+        )
+    except Exception as e:
+        _handle_error(e)
 
 
 @app.command()
