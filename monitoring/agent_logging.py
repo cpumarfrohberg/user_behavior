@@ -83,7 +83,7 @@ async def log_agent_run(
         from monitoring.schemas import LogCreate
 
         # Extract data from agent run
-        output = await result.get_output()
+        output = result.output
         usage = result.usage()
         messages = result.all_messages()
         log_entry = _create_log_entry(agent, messages, usage, output)
