@@ -8,6 +8,17 @@ services:
     environment:
       - MONGO_INITDB_DATABASE=user_behavior
 
+  postgres:
+    image: postgres:15-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=user_behavior_monitoring
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
   neo4j_etl:
     build:
       context: .
@@ -28,3 +39,4 @@ services:
 
 volumes:
   mongodb_data:
+  postgres_data:

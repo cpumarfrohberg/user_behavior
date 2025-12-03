@@ -177,6 +177,14 @@ class MongoDBSearchAgent:
         logger.info(f"Agent completed query. Tool calls: {len(_tool_calls)}")
         print(f"✅ Agent completed query. Made {len(_tool_calls)} tool calls.")
 
+        # Log agent run to database
+        try:
+            from monitoring.agent_logging import log_agent_run
+
+            await log_agent_run(self.agent, result, question)
+        except Exception as e:
+            logger.warning(f"Failed to log agent run to database: {e}")
+
         return SearchAgentResult(
             answer=result.output,
             tool_calls=_tool_calls.copy(),

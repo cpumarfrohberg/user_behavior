@@ -84,4 +84,12 @@ class OrchestratorAgent:
             f"✅ Orchestrator completed. Used agents: {', '.join(result.output.agents_used)}"
         )
 
+        # Log agent run to database
+        try:
+            from monitoring.agent_logging import log_agent_run
+
+            await log_agent_run(self.agent, result, question)
+        except Exception as e:
+            logger.warning(f"Failed to log agent run to database: {e}")
+
         return result.output
