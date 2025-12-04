@@ -118,8 +118,31 @@ async def run_agent_stream(
                             # This is expected as JSON may be incomplete during streaming
                             pass
 
-            # Get final output (must await for streamed results)
-            final_output: OrchestratorAnswer = await result.get_output()
+            # Try to construct output from handler state (faster than re-parsing)
+            # Only call get_output() if handler parsing failed or is incomplete
+            try:
+                if (
+                    handler.current_answer
+                    and handler.current_confidence is not None
+                    and handler.current_reasoning
+                    and handler.agents_list
+                ):
+                    # Construct from handler state (already parsed during streaming)
+                    final_output = OrchestratorAnswer(
+                        answer=handler.current_answer,
+                        confidence=handler.current_confidence,
+                        reasoning=handler.current_reasoning,
+                        agents_used=handler.agents_list,
+                        sources_used=handler.sources_list
+                        if handler.sources_list
+                        else None,
+                    )
+                else:
+                    # Fallback: handler parsing incomplete, use get_output()
+                    final_output = await result.get_output()
+            except Exception:
+                # If construction fails, fall back to get_output()
+                final_output = await result.get_output()
         st.session_state.last_result = final_output
 
         # Ensure all containers are updated with final values

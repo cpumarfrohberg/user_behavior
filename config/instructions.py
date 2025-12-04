@@ -57,6 +57,11 @@ You must analyze each question carefully to determine which agent(s) to call. Us
 - Asks for both examples AND patterns
 - Needs comprehensive analysis combining textual and graph data
 
+**IMPORTANT: Use `call_both_agents_parallel` tool when both agents are needed:**
+- This tool runs both agents concurrently (much faster than calling them separately)
+- Use `call_both_agents_parallel` instead of calling `call_mongodb_agent` and `call_cypher_query_agent` separately
+- Only call agents separately if you're unsure and want to try one first
+
 **Routing Strategy:**
 1. Analyze the question's intent and keywords
 2. Identify what type of information is needed:
@@ -121,32 +126,40 @@ TAG FILTERING STRATEGY:
   * Question is very general or unclear
   * First search without tags returns good results
 
-WORKFLOW - ADAPTIVE SEARCH STRATEGY:
-1. Make first search with question keywords (optionally with relevant tags)
-2. **CRITICAL: Evaluate results BEFORE making another search:**
-   - Count how many relevant results you got
-   - Assess the text scores (higher = more relevant)
-   - If you have 3+ relevant results with good scores → STOP, synthesize answer
-   - If you have 2+ relevant results that clearly answer the question → STOP, synthesize answer
-3. Only if first search is insufficient (< 2 relevant results OR clearly low quality):
-   - Make a second search with:
-     * Paraphrased query (different phrasing, synonyms)
-     * OR different tag combination
-     * OR remove tags if too restrictive
-   - **Again: Evaluate results. If sufficient → STOP**
-4. Only if still insufficient (multi-faceted question or needs different angle):
-   - Make a third search with another approach (different query, different tags, or broader/narrower scope)
-   - **After third search: STOP regardless of results**
-5. Synthesize all results into comprehensive answer
-6. Maximum 3 searches - ALWAYS STOP after 3 searches, even if you want more
+WORKFLOW - DECISIVE SEARCH STRATEGY:
+**CRITICAL: Be decisive and stop early. Most questions can be answered with 1-2 searches.**
 
-SEARCH RULES:
+1. **First search (MANDATORY):**
+   - Use direct question keywords with optional relevant tags
+   - **IMMEDIATELY evaluate results:**
+     * 3+ relevant results with good scores → STOP, synthesize answer NOW
+     * 2+ relevant results that answer the question → STOP, synthesize answer NOW
+     * 1 relevant result with high score → Consider if sufficient, likely STOP
+     * < 2 relevant results OR low scores → Continue to step 2
+
+2. **Second search (ONLY if first insufficient):**
+   - Try ONE of these approaches:
+     * Paraphrased query (different keywords, synonyms)
+     * Different tag combination
+     * Remove tags if too restrictive, or add tags if too broad
+   - **IMMEDIATELY evaluate: If you have 2+ relevant results → STOP NOW**
+   - If still insufficient → Continue to step 3
+
+3. **Third search (ONLY for complex multi-faceted questions):**
+   - Use a different angle (broader/narrower scope, different aspect)
+   - **After third search: ALWAYS STOP and synthesize, regardless of results**
+
+4. **Synthesize answer from all searches**
+5. **Maximum 3 searches - NEVER exceed this. Most questions need only 1-2 searches.**
+
+SEARCH RULES - BE DECISIVE:
 - **First search is mandatory** - Always start with direct question keywords
-- **EVALUATE AFTER EACH SEARCH** - Count results, assess quality, decide if you need more
-- **Second search is conditional** - Only if first search is insufficient (< 2 relevant results or clearly low quality)
-- **Third search is optional** - Only for complex multi-faceted questions or when second search still insufficient
-- **Maximum 3 searches** - NEVER exceed this limit. After 3 searches, STOP and synthesize answer
-- **STOP EARLY** - If you have 3+ relevant results, STOP. Don't make unnecessary searches.
+- **EVALUATE IMMEDIATELY after each search** - Don't make another search unless clearly needed
+- **STOP EARLY is the default** - If you have 2+ relevant results, STOP and synthesize
+- **Second search is conditional** - Only if first search has < 2 relevant results OR clearly low quality
+- **Third search is rare** - Only for complex multi-faceted questions requiring different angles
+- **Maximum 3 searches** - NEVER exceed. Most questions need 1-2 searches maximum.
+- **Default to stopping** - When in doubt, STOP and synthesize rather than searching more
 - Keep queries simple and focused - don't combine multiple concepts in one query
 - Use tag filtering intelligently - start without tags, add if needed
 

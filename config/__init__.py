@@ -92,7 +92,6 @@ DEFAULT_CHUNK_OVERLAP = 0  # No overlap = faster chunking, fewer chunks
 DEFAULT_CONTENT_FIELD = "content"
 DEFAULT_MAX_CONTEXT_LENGTH = 800  # Reduced for speed (was 1000)
 
-# LLM generation parameters
 DEFAULT_TEMPERATURE = 0.3  # Lower temperature for more focused, deterministic responses
 DEFAULT_RAG_TEMPERATURE = 0.3  # Temperature for RAG Agent (focused answers)
 DEFAULT_JUDGE_TEMPERATURE = 0.1  # Lower temperature for Judge (consistent validation)
@@ -102,7 +101,6 @@ DEFAULT_MAX_TOKENS = (
 
 DEFAULT_NUM_RESULTS = 1
 
-# Ground truth generation defaults
 DEFAULT_GROUND_TRUTH_SAMPLES = int(os.getenv("DEFAULT_GROUND_TRUTH_SAMPLES", "50"))
 DEFAULT_GROUND_TRUTH_OUTPUT = os.getenv(
     "DEFAULT_GROUND_TRUTH_OUTPUT", "evals/ground_truth.json"
@@ -145,7 +143,6 @@ MONGODB_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 MONGODB_DB = os.getenv("MONGO_DB_NAME", "stackexchange")
 MONGODB_COLLECTION = os.getenv("MONGO_COLLECTION_NAME", "questions")
 
-# OpenAI Configuration
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_RAG_MODEL = os.getenv("OPENAI_RAG_MODEL", str(DEFAULT_RAG_MODEL))
 OPENAI_JUDGE_MODEL = os.getenv("OPENAI_JUDGE_MODEL", str(DEFAULT_JUDGE_MODEL))
@@ -153,7 +150,6 @@ OPENAI_JUDGE_MODEL = os.getenv("OPENAI_JUDGE_MODEL", str(DEFAULT_JUDGE_MODEL))
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
-# PostgreSQL Configuration for Monitoring
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql://postgres:postgres@localhost:5433/user_behavior_monitoring",
@@ -163,12 +159,11 @@ NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "your_secure_password")
 
-# Orchestrator Configuration
+
 ENABLE_ORCHESTRATOR_JUDGE = (
     os.getenv("ENABLE_ORCHESTRATOR_JUDGE", "false").lower() == "true"
 )
 
-# UX-related tags for relevance filtering
 UX_TAGS = [
     "usability",
     "user-interface",
@@ -180,7 +175,6 @@ UX_TAGS = [
     "user-satisfaction",
 ]
 
-# Behavior keywords for relevance filtering
 BEHAVIOR_KEYWORDS = [
     "behavior",
     "satisfaction",
