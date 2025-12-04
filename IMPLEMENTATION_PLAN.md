@@ -9,13 +9,106 @@ This plan covers the remaining features to be implemented for the user behavior 
 - ✅ Phase 2: Logging & Cost Tracking Infrastructure
 - ✅ Phase 3: Streamlit UI with streaming support
 - ✅ Basic caching optimizations
+- ✅ MongoDB Agent: Tool call limit enforcement (hard stop with exception)
+- ✅ MongoDB Agent: Counter synchronization fix
+- ✅ MongoDB Agent: Schema fix (added `searches` field to `SearchAnswer`)
+
+**Critical Issues to Fix (URGENT):**
+1. **MongoDB Agent Tool Call Limit Bug**: Agent still making 4-5 searches despite 3-call limit
+2. **Counter Race Condition**: Counter reaching 5+ in concurrent scenarios
+3. **Agent Instruction Compliance**: Agent not stopping after 3 searches as instructed
 
 **Still To Do:**
-1. **Performance Optimization**: Address execution speed bottlenecks (do this first!)
-2. **Cypher Query Agent**: Agent that translates prompts to Cypher queries and queries Neo4j
-3. **Evaluation**: Framework to evaluate the Cypher Query Agent
-4. **Guardrails**: Safety and quality controls for agents
-5. **Local LLM Support**: Future enhancement for cloud deployment
+1. **Fix MongoDB Agent Limit Enforcement** (do this first - blocking issue!)
+2. **Performance Optimization**: Address execution speed bottlenecks
+3. **Cypher Query Agent**: Agent that translates prompts to Cypher queries and queries Neo4j
+4. **Evaluation**: Framework to evaluate the Cypher Query Agent
+5. **Guardrails**: Safety and quality controls for agents
+6. **Local LLM Support**: Future enhancement for cloud deployment
+
+---
+
+## Phase 0: Fix MongoDB Agent Tool Call Limit (URGENT - BLOCKING)
+
+### 0.1 Problem Analysis
+
+**Current Issues:**
+1. **Agent making 4-5 searches**: Despite 3-call limit, agent attempts 4-5 searches
+2. **Counter reaching 5+**: Counter shows 5 calls when max is 3, suggesting race condition
+3. **Agent not following instructions**: Agent doesn't stop after 3 searches as instructed
+4. **Concurrent tool calls**: When orchestrator calls agents in parallel, counter may increment incorrectly
+5. **Exception handling**: When limit exceeded, orchestrator retries, causing multiple failed attempts
+
+**Root Causes:**
+- Counter increment happens in event handler, but pydantic_ai may call tools concurrently
+- Event handler may fire multiple times for the same tool call (nested events)
+- Agent instructions are too complex - agent isn't following the "stop after 3" rule
+- No validation that agent stops after 3rd search before making 4th
+
+### 0.2 Solutions
+
+**0.2.1 Fix Counter Race Condition**
+- **File**: `mongodb_agent/agent.py`, `mongodb_agent/tools.py`
+- **Problem**: Event handler increments counter, but concurrent tool calls cause race condition
+- **Solution**:
+  - Use thread-safe counter (asyncio.Lock or threading.Lock)
+  - OR: Check counter BEFORE incrementing in event handler
+  - OR: Move counter increment to tool function (but check before incrementing)
+- **Expected Impact**: Prevents counter from exceeding limit incorrectly
+
+**0.2.2 Simplify Instructions**
+- **File**: `config/instructions.py`
+- **Problem**: Instructions are too verbose (160+ lines), agent misses critical "stop after 3" rule
+- **Solution**:
+  - Move "MAXIMUM 3 SEARCHES" to very top
+  - Simplify evaluation to: "2+ relevant results? → STOP. Less? → Continue (if under 3)"
+  - Remove redundant explanations
+  - Make it a simple decision tree
+- **Expected Impact**: Agent will actually follow the 3-search limit
+
+**0.2.3 Add Pre-Call Validation**
+- **File**: `mongodb_agent/tools.py`
+- **Problem**: Tool function checks limit AFTER event handler increments, allowing 4th call to start
+- **Solution**:
+  - Check limit BEFORE allowing tool execution
+  - Raise exception immediately if limit would be exceeded
+  - This prevents the 4th call from even starting
+- **Expected Impact**: Hard stop before 4th search begins
+
+**0.2.4 Improve Error Handling**
+- **File**: `orchestrator/tools.py`
+- **Problem**: When MongoDB agent fails with limit exception, orchestrator retries, causing cascading failures
+- **Solution**:
+  - Catch `ToolCallLimitExceeded` specifically
+  - Don't retry on limit exceptions - agent has already used all allowed searches
+  - Return partial results from previous searches if available
+- **Expected Impact**: Prevents retry loops and provides better error messages
+
+**0.2.5 Add Counter Reset Verification**
+- **File**: `mongodb_agent/agent.py`
+- **Problem**: Counter may not be reset properly between queries
+- **Solution**:
+  - Add logging to verify counter is reset to 0 at start of each query
+  - Add assertion or check that counter is 0 before starting
+  - Log counter value after reset
+- **Expected Impact**: Ensures clean state for each query
+
+### 0.3 Testing
+
+**Test Cases:**
+1. Agent makes exactly 3 searches and stops
+2. Agent stops after 2 searches when it has sufficient results
+3. Counter is reset to 0 at start of each new query
+4. Counter never exceeds 3
+5. Exception is raised on 4th attempt (not 5th)
+6. Orchestrator handles limit exception gracefully (no retries)
+
+**Success Criteria:**
+- ✅ Agent never makes more than 3 searches
+- ✅ Counter is always accurate (never exceeds 3)
+- ✅ Agent stops early when it has sufficient results
+- ✅ No retry loops when limit is exceeded
+- ✅ User gets results even if agent hits limit
 
 ---
 
@@ -406,12 +499,13 @@ else:
 
 ## Implementation Order
 
-1. **Phase 1**: Performance Optimization (address execution speed issues - do this first!)
-2. **Phase 2**: Cypher Query Agent (core functionality)
-3. **Phase 3**: Evaluation Framework (quality assurance)
-4. **Phase 4**: Integration and Testing (polish and validation)
-5. **Phase 5**: Guardrails Implementation (safety and quality controls)
-6. **Phase 6**: Local LLM Support (future enhancement)
+1. **Phase 0**: Fix MongoDB Agent Tool Call Limit (URGENT - blocking issue, do this first!)
+2. **Phase 1**: Performance Optimization (address execution speed issues)
+3. **Phase 2**: Cypher Query Agent (core functionality)
+4. **Phase 3**: Evaluation Framework (quality assurance)
+5. **Phase 4**: Integration and Testing (polish and validation)
+6. **Phase 5**: Guardrails Implementation (safety and quality controls)
+7. **Phase 6**: Local LLM Support (future enhancement)
 
 ---
 

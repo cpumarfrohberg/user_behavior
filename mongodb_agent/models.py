@@ -26,6 +26,24 @@ class SearchResult(BaseModel):
     )
 
 
+class SearchEntry(BaseModel):
+    """Entry in the searches log tracking each search performed"""
+
+    query: str = Field(..., description="The search query text")
+    tags: list[str] = Field(default_factory=list, description="Tags used for filtering")
+    num_results: int = Field(..., ge=0, description="Number of results returned")
+    top_scores: list[float] = Field(
+        default_factory=list, description="Top similarity scores from the search"
+    )
+    used_ids: list[str] = Field(
+        default_factory=list, description="Source IDs actually used from this search"
+    )
+    eval: str = Field(
+        ...,
+        description="Evaluation string: 'relevant_count=X, top_scores=[a,b,c], decision=STOP|CONTINUE'",
+    )
+
+
 class SearchAnswer(BaseModel):
     """Structured response from search system"""
 
@@ -41,6 +59,10 @@ class SearchAnswer(BaseModel):
     )
     reasoning: str | None = Field(
         None, description="Brief explanation of the reasoning behind the answer"
+    )
+    searches: list[SearchEntry] = Field(
+        ...,
+        description="Log of searches performed with evaluation metadata. Must contain at least one entry.",
     )
 
 
