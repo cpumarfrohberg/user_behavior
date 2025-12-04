@@ -13,6 +13,9 @@ logger = logging.getLogger(__name__)
 PLACEHOLDER_CONFIDENCE = 0.0
 ERROR_CONFIDENCE = 0.0
 MIN_CONFIDENCE = 0.0
+NUM_AGENTS_FOR_AVERAGING = 2  # Number of agents to average confidence from
+DEFAULT_TOOL_CALLS = 0  # Default value for tool_calls when not present
+QUESTION_LOG_TRUNCATE_LENGTH = 100  # Maximum length for question in log messages
 
 # Global instances to avoid re-initialization
 _mongodb_agent_instance: MongoDBSearchAgent | None = None
@@ -73,20 +76,13 @@ def _format_mongodb_result(result: Any) -> dict[str, Any]:
 
 
 async def call_mongodb_agent(question: str) -> dict[str, Any]:
-    """
-    Call MongoDB Agent to answer a question using document retrieval.
-
-    Args:
-        question: User question to answer
-
-    Returns:
-        Dictionary with answer, confidence, sources, and reasoning
-    """
     global _mongodb_agent_instance
 
     _ensure_mongodb_agent_initialized()
 
-    logger.info(f"Calling MongoDB Search Agent with question: {question[:100]}...")
+    logger.info(
+        f"Calling MongoDB Search Agent with question: {question[:QUESTION_LOG_TRUNCATE_LENGTH]}..."
+    )
 
     try:
         result = await _mongodb_agent_instance.query(question)
@@ -168,7 +164,7 @@ def _calculate_combined_confidence(
         return cypher_conf
 
     # Average both confidences
-    return (mongodb_conf + cypher_conf) / 2.0
+    return (mongodb_conf + cypher_conf) / float(NUM_AGENTS_FOR_AVERAGING)
 
 
 def _format_combined_answer(
@@ -210,7 +206,7 @@ def _combine_agent_results(
         "sources_used": mongodb_result.get("sources_used", []),
         "reasoning": combined_reasoning,
         "agents_used": ["mongodb_agent", "cypher_query_agent"],
-        "tool_calls": mongodb_result.get("tool_calls", 0),
+        "tool_calls": mongodb_result.get("tool_calls", DEFAULT_TOOL_CALLS),
     }
 
 
@@ -262,7 +258,9 @@ async def call_both_agents_parallel(question: str) -> dict[str, Any]:
     Returns:
         Dictionary with combined answer, confidence, sources, and reasoning from both agents
     """
-    logger.info(f"Calling both agents in parallel for question: {question[:100]}...")
+    logger.info(
+        f"Calling both agents in parallel for question: {question[:QUESTION_LOG_TRUNCATE_LENGTH]}..."
+    )
 
     try:
         results = await _run_agents_parallel(question)

@@ -73,12 +73,13 @@ You must analyze each question carefully to determine which agent(s) to call. Us
 5. If you're unsure, try calling both agents - it's better to get comprehensive information than to miss insights
 6. For questions about "topics", "patterns", "relationships", "most discussed", "correlations" - strongly consider calling both agents
 
-**Response Synthesis:**
-- If you called one agent: Use that agent's answer directly
-- If you called both agents: Synthesize their answers into a comprehensive response that combines:
-  - Specific examples from RAG Agent
-  - Pattern analysis from Cypher Query Agent
-  - Clear explanation of how the information relates
+**Response Synthesis - BE EFFICIENT:**
+- If you called one agent: Use that agent's answer directly - no additional processing needed
+- If you called both agents: Quickly combine their answers:
+  - Start with the MongoDB agent's answer (usually more detailed)
+  - Add a brief note about graph analysis from Cypher agent if relevant
+  - Keep synthesis concise - don't overthink or over-explain
+- **CRITICAL: Synthesize quickly and return the answer. Don't make additional tool calls after getting agent results.**
 
 **Handling Imprecise Questions:**
 Users often ask vague or imprecise questions. Your job is to:
@@ -127,39 +128,62 @@ TAG FILTERING STRATEGY:
   * First search without tags returns good results
 
 WORKFLOW - DECISIVE SEARCH STRATEGY:
-**CRITICAL: Be decisive and stop early. Most questions can be answered with 1-2 searches.**
+**CRITICAL: Be decisive and stop early. Most questions can be answered with 1-2 searches. Maximum 3 searches enforced by system.**
+
+**MANDATORY EVALUATION STEP - YOU MUST DO THIS AFTER EVERY SEARCH:**
+
+After EACH search_mongodb call, you MUST explicitly evaluate the results before making another search. Ask yourself:
+
+1. **Count relevant results:** How many results directly answer the question?
+2. **Assess quality:** Are the similarity scores good (higher = more relevant)?
+3. **Check completeness:** Do these results provide enough information to answer the question?
+4. **Make decision:** Based on the evaluation, should you:
+   - STOP and synthesize (if you have sufficient information)
+   - Make another search (ONLY if clearly insufficient)
+
+**Evaluation criteria:**
+- 3+ relevant results with good scores → STOP immediately, synthesize answer
+- 2+ relevant results that answer the question → STOP immediately, synthesize answer
+- 1 relevant result with high score → Usually STOP (only continue if clearly insufficient)
+- < 2 relevant results OR low scores → May continue to next search
+
+**You MUST explicitly state your evaluation in your reasoning before making another search call.**
 
 1. **First search (MANDATORY):**
    - Use direct question keywords with optional relevant tags
-   - **IMMEDIATELY evaluate results:**
-     * 3+ relevant results with good scores → STOP, synthesize answer NOW
-     * 2+ relevant results that answer the question → STOP, synthesize answer NOW
-     * 1 relevant result with high score → Consider if sufficient, likely STOP
-     * < 2 relevant results OR low scores → Continue to step 2
+   - **MANDATORY: Explicitly evaluate results using the criteria above**
+   - If evaluation shows sufficient results → STOP, synthesize answer NOW
+   - If evaluation shows insufficient results → Continue to step 2
 
-2. **Second search (ONLY if first insufficient):**
+2. **Second search (ONLY if first evaluation shows insufficient results):**
    - Try ONE of these approaches:
      * Paraphrased query (different keywords, synonyms)
      * Different tag combination
      * Remove tags if too restrictive, or add tags if too broad
-   - **IMMEDIATELY evaluate: If you have 2+ relevant results → STOP NOW**
-   - If still insufficient → Continue to step 3
+   - **MANDATORY: Explicitly evaluate results again**
+   - If evaluation shows 2+ relevant results → STOP NOW, synthesize answer
+   - If evaluation still shows insufficient → Continue to step 3
 
-3. **Third search (ONLY for complex multi-faceted questions):**
-   - Use a different angle (broader/narrower scope, different aspect)
-   - **After third search: ALWAYS STOP and synthesize, regardless of results**
+3. **Third search (LAST RESORT - only if evaluation after 2 searches shows still insufficient):**
+   - Use a completely different approach or broader query
+   - **After third search: ALWAYS STOP and synthesize, regardless of evaluation results**
 
 4. **Synthesize answer from all searches**
-5. **Maximum 3 searches - NEVER exceed this. Most questions need only 1-2 searches.**
+5. **Maximum 3 searches enforced by system - NEVER exceed. Most questions need only 1-2 searches.**
 
 SEARCH RULES - BE DECISIVE:
 - **First search is mandatory** - Always start with direct question keywords
-- **EVALUATE IMMEDIATELY after each search** - Don't make another search unless clearly needed
-- **STOP EARLY is the default** - If you have 2+ relevant results, STOP and synthesize
-- **Second search is conditional** - Only if first search has < 2 relevant results OR clearly low quality
-- **Third search is rare** - Only for complex multi-faceted questions requiring different angles
-- **Maximum 3 searches** - NEVER exceed. Most questions need 1-2 searches maximum.
-- **Default to stopping** - When in doubt, STOP and synthesize rather than searching more
+- **MANDATORY EVALUATION after each search** - You MUST explicitly evaluate results before making another search
+  * Count relevant results
+  * Assess quality (similarity scores)
+  * Check if sufficient to answer the question
+  * Make explicit decision: STOP or continue
+- **STOP EARLY is the default** - If evaluation shows 2+ relevant results, STOP and synthesize
+- **Second search is conditional** - Only if explicit evaluation after first search shows < 2 relevant results OR clearly low quality
+- **Third search is last resort** - Only if explicit evaluation after 2 searches still shows insufficient results
+- **Maximum 3 searches enforced by system** - NEVER exceed. Most questions need 1-2 searches maximum.
+- **Default to stopping** - When in doubt after evaluation, STOP and synthesize rather than searching more
+- **Explicit evaluation required** - You cannot make another search without explicitly evaluating the previous search results
 - Keep queries simple and focused - don't combine multiple concepts in one query
 - Use tag filtering intelligently - start without tags, add if needed
 
@@ -180,21 +204,33 @@ TAG SELECTION:
   * Question about general behavior → tags: ["user-behavior"]
 - You can search without tags first, then add tags if results are too broad
 
-WHEN TO MAKE ADDITIONAL SEARCHES:
-- ✅ First search returns < 2 relevant results
-- ✅ Results have low text scores (clearly low relevance)
-- ✅ Question is clearly multi-faceted (e.g., "causes AND solutions")
+EVALUATION-BASED DECISION MAKING:
+**Before making ANY additional search, you MUST explicitly evaluate the current results:**
+
+1. **Count relevant results** - How many results actually answer the question?
+2. **Check similarity scores** - Higher scores = more relevant (use this to assess quality)
+3. **Assess completeness** - Do these results provide enough information?
+4. **Make explicit decision** - State clearly: "I have X relevant results with scores Y, which is [sufficient/insufficient], so I will [STOP/continue]"
+
+**Only make another search if your explicit evaluation shows:**
+- ✅ < 2 relevant results from previous search
+- ✅ Results have low similarity scores (clearly low relevance)
+- ✅ Question is clearly multi-faceted and needs different angle
 - ✅ Results are contradictory and need verification
-- ✅ First search too broad (many irrelevant results) → try with tag filter
-- ❌ First search returns 3+ highly relevant results → STOP IMMEDIATELY, answer from these
-- ❌ First search returns 2+ results that clearly answer the question → STOP IMMEDIATELY
+- ✅ Previous search too broad (many irrelevant results) → try with tag filter
+
+**STOP and synthesize if your explicit evaluation shows:**
+- ❌ 3+ highly relevant results (high similarity scores) → STOP IMMEDIATELY
+- ❌ 2+ results that clearly answer the question → STOP IMMEDIATELY
+- ❌ 1 high-quality result that answers the question → Usually STOP
 
 WHEN TO STOP (CRITICAL - READ CAREFULLY):
 - ✅ **STOP after first search if:** 3+ relevant results OR 2+ results that clearly answer the question
 - ✅ **STOP after second search if:** You have sufficient information (2+ relevant results)
 - ✅ **ALWAYS STOP after third search** - No exceptions, synthesize answer from what you have
 - ✅ Question is simple and focused (single concept) → Usually 1-2 searches is enough
-- ❌ **DO NOT make 4+ searches** - Maximum is 3, enforced by system
+- ❌ **DO NOT make 4+ searches** - Maximum is 3, enforced by system (will raise ToolCallLimitExceeded exception)
+- ⚠️ **CRITICAL: If search_mongodb raises ToolCallLimitExceeded exception, you have hit the hard limit - STOP IMMEDIATELY and synthesize from previous searches. The exception message will tell you the limit has been exceeded. Do NOT make another search call.**
 
 ANSWER GENERATION:
 - Synthesize information from all searches

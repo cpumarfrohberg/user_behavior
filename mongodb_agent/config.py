@@ -13,11 +13,9 @@ from config import (
 
 @dataclass
 class MongoDBConfig:
-    """Configuration for MongoDB Agent system"""
-
-    openai_model: str = OPENAI_RAG_MODEL  # OpenAI model name (e.g., "gpt-4o-mini")
+    openai_model: str = OPENAI_RAG_MODEL
     instruction_type: InstructionType = InstructionType.MONGODB_AGENT
-    max_tool_calls: int = 7  # Maximum number of tool calls allowed (safety limit)
+    max_tool_calls: int = 3  # Maximum number of tool calls allowed (safety limit)
     mongo_uri: str = MONGODB_URI
     database: str = MONGODB_DB
     collection: str = "questions"  # Updated to match actual collection name

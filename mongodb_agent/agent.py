@@ -39,6 +39,12 @@ async def track_tool_calls(ctx: Any, event: Any) -> None:
         _tool_calls.append(tool_call)
         tool_num = len(_tool_calls)
 
+        # Increment tool call counter for search_mongodb calls (synchronize with tools.py)
+        if event.part.tool_name == "search_mongodb":
+            from mongodb_agent.tools import increment_tool_call_count
+
+            increment_tool_call_count()
+
         # Parse args to extract query for display
         try:
             args_dict = (
