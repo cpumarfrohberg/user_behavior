@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from typing import Any
@@ -8,6 +9,9 @@ from pydantic_ai import Agent
 from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter
 from pydantic_ai.result import StreamedRunResult
 from pydantic_ai.usage import RunUsage
+
+from monitoring.db import get_db, insert_log
+from monitoring.schemas import LogCreate
 
 logger = logging.getLogger(__name__)
 
@@ -42,24 +46,41 @@ def _calc_cost(
     model: str | None,
     input_tokens: int | None,
     output_tokens: int | None,
-) -> tuple[float | None, float | None, float | None]:
-    """Calculate cost using genai_prices library. Returns (input_cost, output_cost, total_cost)."""
+) -> dict[str, float | None]:
+    """Calculate cost using genai_prices library."""
     if not provider or not model:
-        return (None, None, None)
+        return {"input_cost": None, "output_cost": None, "total_cost": None}
 
     try:
         token_usage = Usage(
-            input_tokens=int(input_tokens or 0), output_tokens=int(output_tokens or 0)
+            input_tokens=int(input_tokens or 0),
+            output_tokens=int(output_tokens or 0),
         )
         price_data = calc_price(token_usage, provider_id=provider, model_ref=model)
-        return (
-            float(price_data.input_price),
-            float(price_data.output_price),
-            float(price_data.total_price),
-        )
+        return {
+            "input_cost": float(price_data.input_price),
+            "output_cost": float(price_data.output_price),
+            "total_cost": float(price_data.total_price),
+        }
     except Exception as e:
         logger.warning(f"Cost calculation failed: {e}")
-        return (None, None, None)
+        return {"input_cost": None, "output_cost": None, "total_cost": None}
+
+
+def _extract_answer_text(output: Any) -> str | None:
+    """Extract answer text from agent output."""
+    if isinstance(output, dict):
+        return output.get("answer") or str(output)
+    return str(output) if output else None
+
+
+def _normalize_instructions(instructions: Any) -> str | None:
+    """Convert instructions to string format."""
+    if instructions is None:
+        return None
+    if isinstance(instructions, list):
+        return "\n".join(str(item) for item in instructions)
+    return str(instructions)
 
 
 async def log_agent_run(
@@ -79,51 +100,29 @@ async def log_agent_run(
         Log ID if successful, None otherwise
     """
     try:
-        from monitoring.db import get_db, insert_log
-        from monitoring.schemas import LogCreate
-
-        # Extract data from agent run
         output = result.output
         usage = result.usage()
         messages = result.all_messages()
         log_entry = _create_log_entry(agent, messages, usage, output)
 
-        # Extract answer text
-        answer_text = None
-        if isinstance(output, dict):
-            answer_text = output.get("answer", str(output))
-        elif output:
-            answer_text = str(output)
-
-        # Calculate costs
-        input_cost, output_cost, total_cost = _calc_cost(
-            log_entry["provider"],
-            log_entry["model"],
+        costs = _calc_cost(
+            log_entry.get("provider"),
+            log_entry.get("model"),
             usage.input_tokens,
             usage.output_tokens,
         )
 
-        # Convert instructions to string
-        instructions_text = log_entry["system_prompt"]
-        if isinstance(instructions_text, list):
-            instructions_text = "\n".join(str(item) for item in instructions_text)
-        elif instructions_text is not None:
-            instructions_text = str(instructions_text)
-
-        # Validate and save
         log_data = LogCreate(
-            agent_name=log_entry["agent_name"],
-            provider=log_entry["provider"],
-            model=log_entry["model"],
+            agent_name=log_entry.get("agent_name"),
+            provider=log_entry.get("provider"),
+            model=log_entry.get("model"),
             user_prompt=question,
-            instructions=instructions_text,
+            instructions=_normalize_instructions(log_entry.get("system_prompt")),
             total_input_tokens=usage.input_tokens,
             total_output_tokens=usage.output_tokens,
-            assistant_answer=answer_text,
+            assistant_answer=_extract_answer_text(output),
             raw_json=json.dumps(log_entry, default=str),
-            input_cost=input_cost,
-            output_cost=output_cost,
-            total_cost=total_cost,
+            **costs,
         )
 
         with get_db() as db:
@@ -139,3 +138,39 @@ async def log_agent_run(
     except Exception as e:
         logger.error(f"Failed to save log to database: {e}", exc_info=True)
         return None
+
+
+async def _log_agent_run_with_error_handling(
+    agent: Agent,
+    result: StreamedRunResult,
+    question: str,
+) -> None:
+    """Wrapper that handles errors for background logging task."""
+    try:
+        await log_agent_run(agent, result, question)
+    except Exception as e:
+        logger.error(f"Background logging task failed: {e}", exc_info=True)
+
+
+def log_agent_run_async(
+    agent: Agent,
+    result: StreamedRunResult,
+    question: str,
+) -> None:
+    """
+    Log agent run to database asynchronously (non-blocking).
+
+    This function creates a background task to log the agent run without blocking
+    the main execution flow. Errors are logged but don't affect the caller.
+
+    Args:
+        agent: The agent instance
+        result: Streamed run result
+        question: The user's question
+    """
+    try:
+        # Create background task - don't await it
+        asyncio.create_task(_log_agent_run_with_error_handling(agent, result, question))
+    except Exception as e:
+        # If we can't even create the task, log it but don't raise
+        logger.warning(f"Failed to create background logging task: {e}")

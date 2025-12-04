@@ -109,12 +109,12 @@ class OrchestratorAgent:
             except Exception as e:
                 logger.warning(f"Judge evaluation failed: {e}")
 
-        # Log agent run to database
+        # Log agent run to database (non-blocking background task)
         try:
-            from monitoring.agent_logging import log_agent_run
+            from monitoring.agent_logging import log_agent_run_async
 
-            await log_agent_run(self.agent, result, question)
+            log_agent_run_async(self.agent, result, question)
         except Exception as e:
-            logger.warning(f"Failed to log agent run to database: {e}")
+            logger.warning(f"Failed to start background logging task: {e}")
 
         return result.output

@@ -10,6 +10,9 @@ repos:
 - repo: https://github.com/astral-sh/ruff-pre-commit
   rev: v0.8.4
   hooks:
-    - id: ruff
-      args: [ --fix, --extend-select=I]
-    - id: ruff-format
+  # Check import order (fails commit if imports not properly ordered/at top)
+  # Configuration is in pyproject.toml [tool.ruff.lint]
+  # Note: Run 'ruff check --fix' manually to auto-fix issues before committing
+  - id: ruff
+    # No --fix flag = will fail commit if import issues found
+  - id: ruff-format

@@ -68,6 +68,7 @@ markers = [
 [tool.ruff]
 # Disable F401 (unused imports) for __init__.py files since they often re-export
 [tool.ruff.lint]
+select = ["I"]  # Enable import sorting and ordering rules
 ignore = ["F401"]
 
 [tool.ruff.lint.per-file-ignores]

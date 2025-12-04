@@ -177,13 +177,13 @@ class MongoDBSearchAgent:
         logger.info(f"Agent completed query. Tool calls: {len(_tool_calls)}")
         print(f"✅ Agent completed query. Made {len(_tool_calls)} tool calls.")
 
-        # Log agent run to database
+        # Log agent run to database (non-blocking background task)
         try:
-            from monitoring.agent_logging import log_agent_run
+            from monitoring.agent_logging import log_agent_run_async
 
-            await log_agent_run(self.agent, result, question)
+            log_agent_run_async(self.agent, result, question)
         except Exception as e:
-            logger.warning(f"Failed to log agent run to database: {e}")
+            logger.warning(f"Failed to start background logging task: {e}")
 
         return SearchAgentResult(
             answer=result.output,
