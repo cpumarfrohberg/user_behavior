@@ -39,11 +39,9 @@ async def track_tool_calls(ctx: Any, event: Any) -> None:
         _tool_calls.append(tool_call)
         tool_num = len(_tool_calls)
 
-        # Increment tool call counter for search_mongodb calls (synchronize with tools.py)
-        if event.part.tool_name == "search_mongodb":
-            from mongodb_agent.tools import increment_tool_call_count
-
-            increment_tool_call_count()
+        # Note: Counter increment is now handled by tool function's pre-call validation
+        # (see _check_and_increment_tool_call_count in tools.py)
+        # This prevents double-counting and ensures thread-safe limit enforcement
 
         # Parse args to extract query for display
         try:
@@ -160,9 +158,19 @@ class MongoDBSearchAgent:
         _tool_calls = []
 
         # Reset tool call counter for this query
-        from mongodb_agent.tools import reset_tool_call_count
+        from mongodb_agent.tools import get_tool_call_count, reset_tool_call_count
 
         reset_tool_call_count()
+        # Verify counter is reset to 0
+        initial_count = get_tool_call_count()
+        if initial_count != 0:
+            logger.warning(
+                f"⚠️ Counter not properly reset! Expected 0, got {initial_count}. "
+                f"Resetting again..."
+            )
+            reset_tool_call_count()
+            initial_count = get_tool_call_count()
+        logger.info(f"✅ Tool call counter reset to {initial_count} (verified)")
 
         if self.agent is None:
             raise RuntimeError("Agent not initialized. Call initialize() first.")

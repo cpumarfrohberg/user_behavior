@@ -2,6 +2,7 @@
 """MongoDB search tool function that agent can call repeatedly"""
 
 import logging
+import threading
 from typing import List
 
 from pymongo.collection import Collection
@@ -53,6 +54,8 @@ _mongodb_collection: Collection | None = None
 # Global tool call counter (incremented by agent's event handler)
 _tool_call_count = DEFAULT_TOOL_CALL_COUNT
 _max_tool_calls = DEFAULT_MAX_TOOL_CALLS  # Safety limit - can be overridden
+# Thread lock for thread-safe counter operations
+_counter_lock = threading.Lock()
 
 
 def initialize_mongodb_collection(collection: Collection) -> None:
@@ -78,7 +81,15 @@ def set_max_tool_calls(max_calls: int) -> None:
 def reset_tool_call_count() -> None:
     """Reset the tool call counter (called at start of each query)"""
     global _tool_call_count
-    _tool_call_count = DEFAULT_TOOL_CALL_COUNT
+    with _counter_lock:
+        _tool_call_count = DEFAULT_TOOL_CALL_COUNT
+
+
+def get_tool_call_count() -> int:
+    """Get current tool call count (for verification)"""
+    global _tool_call_count
+    with _counter_lock:
+        return _tool_call_count
 
 
 def increment_tool_call_count() -> int:
@@ -92,28 +103,63 @@ def increment_tool_call_count() -> int:
         The new tool call count after incrementing
     """
     global _tool_call_count
-    _tool_call_count += 1
-    return _tool_call_count
+    with _counter_lock:
+        _tool_call_count += 1
+        return _tool_call_count
+
+
+def _check_and_increment_tool_call_count() -> int:
+    """
+    Thread-safe: Check limit BEFORE incrementing, then increment if allowed.
+    This prevents the 4th call from even starting.
+
+    This function atomically:
+    1. Checks if we're already at the limit
+    2. If yes, raises ToolCallLimitExceeded immediately (before incrementing)
+    3. If no, increments the counter and returns the new count
+
+    Returns:
+        The new tool call count after incrementing
+
+    Raises:
+        ToolCallLimitExceeded: If maximum tool calls limit would be exceeded
+    """
+    global _tool_call_count, _max_tool_calls
+
+    with _counter_lock:
+        # Check BEFORE incrementing - if we're at limit, raise immediately
+        if _tool_call_count >= _max_tool_calls:
+            logger.warning(
+                f"Tool call limit reached: {_tool_call_count} >= {_max_tool_calls}. "
+                f"Blocking call before it starts."
+            )
+            raise ToolCallLimitExceeded(_tool_call_count + 1, _max_tool_calls)
+
+        # Safe to increment
+        _tool_call_count += 1
+        logger.info(f"✅ Tool call #{_tool_call_count} of {_max_tool_calls} allowed")
+        return _tool_call_count
 
 
 def _check_tool_call_limit() -> None:
     """
     Check if tool call limit has been exceeded and raise exception if so.
 
-    Note: Counter is incremented by event handler before this check, so we check
-    if count > max (not >=) to allow exactly max_tool_calls calls.
+    DEPRECATED: This is kept for backward compatibility but should not be used.
+    Use _check_and_increment_tool_call_count() instead for pre-call validation.
 
     Raises:
         ToolCallLimitExceeded: If maximum tool calls limit has been exceeded
     """
     global _tool_call_count, _max_tool_calls
 
-    if _tool_call_count > _max_tool_calls:
-        logger.warning(
-            f"Maximum tool calls ({_max_tool_calls}) exceeded (current: {_tool_call_count}). "
-            f"Raising ToolCallLimitExceeded - agent MUST STOP and synthesize from previous searches."
-        )
-        raise ToolCallLimitExceeded(_tool_call_count, _max_tool_calls)
+    with _counter_lock:
+        if _tool_call_count > _max_tool_calls:
+            logger.warning(
+                f"Maximum tool calls ({_max_tool_calls}) exceeded (current: {_tool_call_count}). "
+                f"Raising ToolCallLimitExceeded - agent MUST STOP and synthesize from previous searches."
+            )
+            raise ToolCallLimitExceeded(_tool_call_count, _max_tool_calls)
 
 
 def _build_mongodb_query(query: str, tags: List[str] | None) -> dict:
@@ -259,9 +305,9 @@ def search_mongodb(
             "MongoDB collection not initialized. Call initialize_mongodb_collection first."
         )
 
-    # Check and enforce tool call limit
-    # Note: Counter is incremented by event handler in agent.py, so we just check here
-    _check_tool_call_limit()
+    # Pre-call validation: Check limit BEFORE incrementing (prevents 4th call from starting)
+    # This is thread-safe and atomic - if we're at limit, exception is raised immediately
+    current_count = _check_and_increment_tool_call_count()
 
     # Build query, execute search, and transform results
     mongo_query = _build_mongodb_query(query, tags)

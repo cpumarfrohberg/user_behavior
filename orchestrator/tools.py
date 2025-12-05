@@ -6,6 +6,7 @@ from typing import Any
 
 from mongodb_agent.agent import MongoDBSearchAgent
 from mongodb_agent.config import MongoDBConfig
+from mongodb_agent.tools import ToolCallLimitExceeded
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,25 @@ async def call_mongodb_agent(question: str) -> dict[str, Any]:
     try:
         result = await _mongodb_agent_instance.query(question)
         return _format_mongodb_result(result)
+    except ToolCallLimitExceeded as e:
+        # Agent hit limit - don't retry, return partial results if available
+        logger.warning(
+            f"MongoDB Agent hit tool call limit: {e.max_calls} calls made. "
+            f"Agent stopped early - this is expected behavior."
+        )
+        # Try to get partial results from the exception or return error
+        return {
+            "answer": (
+                f"Agent reached maximum search limit ({e.max_calls} searches). "
+                f"Please synthesize your answer from the available results. "
+                f"If you need more information, try rephrasing your question."
+            ),
+            "confidence": 0.5,  # Lower confidence due to limit
+            "sources_used": [],
+            "reasoning": f"Tool call limit exceeded ({e.max_calls} calls) - agent stopped early",
+            "agent": "mongodb_agent",
+            "tool_calls": e.max_calls,  # Max calls made
+        }
     except Exception as e:
         logger.error(f"Error calling MongoDB Search Agent: {e}")
         raise RuntimeError(f"MongoDB Search Agent failed: {str(e)}") from e
