@@ -83,6 +83,33 @@ def _normalize_instructions(instructions: Any) -> str | None:
     return str(instructions)
 
 
+def _sync_insert_log(log_data_dict: dict) -> int | None:
+    """
+    Synchronous helper to insert log in thread pool.
+
+    This function runs in a separate thread to avoid blocking the event loop.
+
+    Args:
+        log_data_dict: Dictionary of log data to insert
+
+    Returns:
+        Log ID if successful, None otherwise
+    """
+    try:
+        with get_db() as db:
+            if not db:
+                logger.warning("Database not available, skipping log save")
+                return None
+
+            log_id = insert_log(db, **log_data_dict)
+            if log_id:
+                logger.info(f"✅ Log saved to database with ID: {log_id}")
+            return log_id
+    except Exception as e:
+        logger.error(f"Failed to insert log in thread pool: {e}", exc_info=True)
+        return None
+
+
 async def log_agent_run(
     agent: Agent,
     result: StreamedRunResult,
@@ -125,15 +152,10 @@ async def log_agent_run(
             **costs,
         )
 
-        with get_db() as db:
-            if not db:
-                logger.warning("Database not available, skipping log save")
-                return None
-
-            log_id = insert_log(db, **log_data.model_dump())
-            if log_id:
-                logger.info(f"✅ Log saved to database with ID: {log_id}")
-            return log_id
+        # Run database operations in thread pool to avoid blocking event loop
+        # This allows other async tasks to continue while database I/O happens
+        log_id = await asyncio.to_thread(_sync_insert_log, log_data.model_dump())
+        return log_id
 
     except Exception as e:
         logger.error(f"Failed to save log to database: {e}", exc_info=True)

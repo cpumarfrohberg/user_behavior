@@ -57,8 +57,10 @@ class MongoDBStorage:
                         needs_update = score_changed or time_passed
 
                     if needs_update:
+                        # Remove _id from doc to avoid immutable field error
+                        update_doc = {k: v for k, v in doc.items() if k != "_id"}
                         self.collection.update_one(
-                            {"question_id": question.question_id}, {"$set": doc}
+                            {"question_id": question.question_id}, {"$set": update_doc}
                         )
                         stored_count += 1
                     else:
