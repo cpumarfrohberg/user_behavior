@@ -110,9 +110,9 @@ async def evaluate_agent(
             judge_score = judge_result.evaluation.overall_score
 
             # Count tokens (agent + judge)
-            # Note: Current agents don't track usage yet, so we'll use judge tokens only
-            # This will be updated when agents return TokenUsage
-            agent_tokens = 0  # TODO: Get from agent when available
+            agent_tokens = (
+                result.token_usage.total_tokens if hasattr(result, "token_usage") else 0
+            )
             judge_tokens = judge_result.usage.total_tokens
             total_tokens = agent_tokens + judge_tokens
 

@@ -14,7 +14,7 @@ from pymongo import MongoClient
 from config import DEFAULT_MAX_TOKENS
 from config.instructions import InstructionsConfig, InstructionType
 from mongodb_agent.config import MongoDBConfig
-from mongodb_agent.models import SearchAgentResult, SearchAnswer
+from mongodb_agent.models import SearchAgentResult, SearchAnswer, TokenUsage
 from mongodb_agent.tools import (
     get_tool_call_count,
     initialize_mongodb_collection,
@@ -195,6 +195,15 @@ class MongoDBSearchAgent:
         logger.info(f"Agent completed query. Tool calls: {len(_tool_calls)}")
         print(f"✅ Agent completed query. Made {len(_tool_calls)} tool calls.")
 
+        # Extract token usage from result
+        usage_obj = result.usage()
+
+        token_usage = TokenUsage(
+            input_tokens=usage_obj.input_tokens,
+            output_tokens=usage_obj.output_tokens,
+            total_tokens=usage_obj.input_tokens + usage_obj.output_tokens,
+        )
+
         try:
             log_agent_run_async(self.agent, result, question)
         except Exception as e:
@@ -203,4 +212,5 @@ class MongoDBSearchAgent:
         return SearchAgentResult(
             answer=result.output,
             tool_calls=_tool_calls.copy(),
+            token_usage=token_usage,
         )

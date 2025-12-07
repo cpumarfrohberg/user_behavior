@@ -1,6 +1,6 @@
 import pytest
 
-from mongodb_agent.models import SearchAnswer
+from mongodb_agent.models import SearchAnswer, TokenUsage
 
 
 @pytest.mark.asyncio
@@ -123,3 +123,30 @@ async def test_all_tool_calls_are_search_documents(initialized_agent):
         assert (
             call["tool_name"] == "search_mongodb"
         ), f"Expected search_mongodb, got {call['tool_name']}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.timeout(120)  # 2 minute timeout for LLM calls
+async def test_agent_tracks_token_usage(initialized_agent):
+    """Test agent tracks and returns token usage"""
+    question = "What are common user frustration patterns?"
+
+    result = await initialized_agent.query(question)
+
+    # Verify token_usage is present
+    assert hasattr(result, "token_usage"), "SearchAgentResult should have token_usage"
+    assert result.token_usage is not None, "token_usage should not be None"
+
+    # Verify token_usage structure
+    assert isinstance(result.token_usage, TokenUsage)
+
+    # Verify token counts are valid (should be > 0 for a real query)
+    assert result.token_usage.input_tokens > 0, "Input tokens should be > 0"
+    assert result.token_usage.output_tokens > 0, "Output tokens should be > 0"
+    assert result.token_usage.total_tokens > 0, "Total tokens should be > 0"
+    assert (
+        result.token_usage.total_tokens
+        == result.token_usage.input_tokens + result.token_usage.output_tokens
+    ), "Total tokens should equal input + output"
