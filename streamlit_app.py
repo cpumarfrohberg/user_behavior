@@ -229,7 +229,18 @@ async def run_agent_stream(
         containers_updated = 0
 
         if handler.answer_container and handler.current_answer:
-            handler.answer_container.markdown(handler.current_answer)
+            # Filter stats from answer text
+            import re
+
+            answer_text = handler.current_answer
+            answer_text = re.sub(
+                r"(?i)(confidence|onfidence)\s*:?\s*\d+\.?\d*%?\s*\n?", "", answer_text
+            )
+            answer_text = re.sub(r"(?i)reasoning\s*:?\s*[^\n]+\n?", "", answer_text)
+            answer_text = re.sub(
+                r"(?i)agents?\s+used\s*:?\s*[^\n]+\n?", "", answer_text
+            )
+            handler.answer_container.markdown(answer_text.strip())
             containers_updated += 1
             logger.info("Updated answer container")
         elif (
@@ -237,7 +248,18 @@ async def run_agent_stream(
             and final_output
             and hasattr(final_output, "answer")
         ):
-            handler.answer_container.markdown(final_output.answer)
+            # Filter stats from answer text
+            import re
+
+            answer_text = final_output.answer
+            answer_text = re.sub(
+                r"(?i)(confidence|onfidence)\s*:?\s*\d+\.?\d*%?\s*\n?", "", answer_text
+            )
+            answer_text = re.sub(r"(?i)reasoning\s*:?\s*[^\n]+\n?", "", answer_text)
+            answer_text = re.sub(
+                r"(?i)agents?\s+used\s*:?\s*[^\n]+\n?", "", answer_text
+            )
+            handler.answer_container.markdown(answer_text.strip())
             containers_updated += 1
             logger.info("Updated answer container from final_output")
         else:
@@ -436,9 +458,23 @@ def _render_chat_page() -> None:
                 )
 
                 if result:
-                    # Save answer to chat history
+                    # Save answer to chat history (filter out stats)
+                    import re
+
+                    answer_text = result.answer
+                    answer_text = re.sub(
+                        r"(?i)(confidence|onfidence)\s*:?\s*\d+\.?\d*%?\s*\n?",
+                        "",
+                        answer_text,
+                    )
+                    answer_text = re.sub(
+                        r"(?i)reasoning\s*:?\s*[^\n]+\n?", "", answer_text
+                    )
+                    answer_text = re.sub(
+                        r"(?i)agents?\s+used\s*:?\s*[^\n]+\n?", "", answer_text
+                    )
                     st.session_state.messages.append(
-                        {"role": "assistant", "content": result.answer}
+                        {"role": "assistant", "content": answer_text.strip()}
                     )
                     # Clear processing message
                     tool_calls_container.empty()

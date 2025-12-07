@@ -86,6 +86,11 @@ ERROR HANDLING & FALLBACKS
 - If a tool call fails:
   - If `call_both_agents_parallel` fails partially (one agent returns, the other errors), synthesize from the successful response and include an explanatory `notes` entry in the routing log.
   - If the only chosen agent fails and there is no alternate, reply with a concise error message and suggest a rephrased question the user can ask.
+- **IMPORTANT: MongoDB Agent Limit Behavior**
+  - When the MongoDB agent hits its search limit (3 searches), this is a VALID COMPLETION, not a failure.
+  - The agent has made its maximum allowed searches and synthesized an answer from those results.
+  - DO NOT retry or reformulate the question when you see "Agent reached maximum search limit".
+  - Accept the result and synthesize from it - the agent has already done its work.
 - If the agent results disagree, synthesize both perspectives and explicitly state the divergence in one sentence.
 
 SAFETY & OUTPUT CONSTRAINTS

@@ -297,7 +297,11 @@ def search_mongodb(
         RuntimeError: If MongoDB collection is not initialized or search fails
         ToolCallLimitExceeded: If you have exceeded the maximum of 3 tool calls.
     """
-    global _tool_call_count, _mongodb_collection
+    global \
+        _tool_call_count, \
+        _mongodb_collection, \
+        _current_max_tool_calls, \
+        _initial_max_tool_calls
 
     if _mongodb_collection is None:
         raise RuntimeError(
@@ -319,7 +323,19 @@ def search_mongodb(
     raw_results = _execute_mongodb_search(_mongodb_collection, mongo_query, num_results)
     search_results = [_convert_doc_to_search_result(doc) for doc in raw_results]
 
-    logger.info(
-        f"MongoDB search returned {len(search_results)} results for query: {query[:QUERY_LOG_TRUNCATE_LENGTH]}"
-    )
+    # Check for early stopping criteria
+    relevant_results = _get_relevant_results(search_results)
+    has_high_quality = _has_high_quality_result(search_results)
+
+    if len(relevant_results) >= MIN_RELEVANT_COUNT or has_high_quality:
+        logger.info(
+            f"✅ GOOD RESULTS FOUND: {len(relevant_results)} relevant results, "
+            f"high_quality={has_high_quality}. Agent should consider stopping early."
+        )
+    else:
+        logger.info(
+            f"MongoDB search returned {len(search_results)} results "
+            f"({len(relevant_results)} relevant) for query: {query[:QUERY_LOG_TRUNCATE_LENGTH]}"
+        )
+
     return search_results

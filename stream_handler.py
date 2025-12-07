@@ -38,7 +38,7 @@ class OrchestratorAnswerHandler(JSONParserHandler):
 
         # Performance optimization: batch updates
         self._update_counter = 0
-        self._update_interval = 10  # Update every N characters
+        self._update_interval = 1  # Update more frequently for better streaming
 
     def reset(self) -> None:
         """Reset handler state for a new query"""
@@ -57,6 +57,20 @@ class OrchestratorAnswerHandler(JSONParserHandler):
         elif field_name == "agents_used" and path == "":
             self.agents_list = []
 
+    def _filter_stats_from_answer(self, answer_text: str) -> str:
+        """Remove stats (confidence, reasoning, agents) from answer text if present."""
+        import re
+
+        # Remove patterns like "Confidence: 50.00%" or "confidence 50.00%"
+        answer_text = re.sub(
+            r"(?i)(confidence|onfidence)\s*:?\s*\d+\.?\d*%?\s*\n?", "", answer_text
+        )
+        # Remove "Reasoning: ..." patterns
+        answer_text = re.sub(r"(?i)reasoning\s*:?\s*[^\n]+\n?", "", answer_text)
+        # Remove "Agents Used: ..." patterns
+        answer_text = re.sub(r"(?i)agents?\s+used\s*:?\s*[^\n]+\n?", "", answer_text)
+        return answer_text.strip()
+
     def on_field_end(
         self,
         path: str,
@@ -71,7 +85,9 @@ class OrchestratorAnswerHandler(JSONParserHandler):
         if field_name == "answer" and path == "":
             # Ensure answer is fully displayed when field completes
             if self.answer_container and self.current_answer:
-                self.answer_container.markdown(self.current_answer)
+                # Filter out stats before displaying
+                answer_text = self._filter_stats_from_answer(self.current_answer)
+                self.answer_container.markdown(answer_text)
 
         elif field_name == "confidence" and path == "":
             # Display confidence as a metric
@@ -97,11 +113,11 @@ class OrchestratorAnswerHandler(JSONParserHandler):
         if field_name == "answer" and path == "":
             # Accumulate answer text
             self.current_answer += chunk
-            # Update UI periodically (not on every character) for better performance
-            self._update_counter += len(chunk)
-            if self._update_counter >= self._update_interval and self.answer_container:
-                self.answer_container.markdown(self.current_answer)
-                self._update_counter = 0
+            # Update UI immediately for better streaming experience
+            if self.answer_container:
+                # Filter out stats from answer text if they appear
+                answer_text = self._filter_stats_from_answer(self.current_answer)
+                self.answer_container.markdown(answer_text)
 
     def on_array_item_end(
         self, path: str, field_name: str, item: object | None = None
