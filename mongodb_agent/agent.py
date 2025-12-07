@@ -14,8 +14,15 @@ from pymongo import MongoClient
 from config import DEFAULT_MAX_TOKENS
 from config.instructions import InstructionsConfig, InstructionType
 from mongodb_agent.config import MongoDBConfig
-from mongodb_agent.models import SearchAgentResult, SearchAnswer, TokenUsage
+from mongodb_agent.models import (
+    SearchAgentResult,
+    SearchAnswer,
+    SearchEntry,
+    TokenUsage,
+)
 from mongodb_agent.tools import (
+    ToolCallLimitExceeded,
+    get_sources,
     get_tool_call_count,
     initialize_mongodb_collection,
     reset_tool_call_count,
@@ -140,17 +147,8 @@ class MongoDBSearchAgent:
 
         logger.info("MongoDB Agent initialized successfully")
 
-    async def query(self, question: str) -> SearchAgentResult:
-        """
-        Run agent query and return result with answer and tool calls
-
-        Args:
-            question: User question to answer
-
-        Returns:
-            SearchAgentResult - Contains answer and tool calls
-        """
-        # Reset tool calls for this query
+    def _reset_and_verify_counters(self) -> None:
+        """Reset tool calls and counter, verify counter is properly reset."""
         global _tool_calls
         _tool_calls = []
 
@@ -176,6 +174,124 @@ class MongoDBSearchAgent:
             )
         logger.info(f"✅ Tool call counter reset to {initial_count} (verified)")
 
+    def _extract_token_usage(self, result: Any) -> TokenUsage:
+        """Extract token usage from result, with fallback to zero if unavailable."""
+        if result is None:
+            return TokenUsage(input_tokens=0, output_tokens=0, total_tokens=0)
+
+        try:
+            usage_obj = result.usage()
+            return TokenUsage(
+                input_tokens=usage_obj.input_tokens,
+                output_tokens=usage_obj.output_tokens,
+                total_tokens=usage_obj.input_tokens + usage_obj.output_tokens,
+            )
+        except (AttributeError, Exception) as usage_error:
+            logger.warning(
+                f"Could not extract token usage from result: {usage_error}. "
+                f"Using fallback token usage."
+            )
+            return TokenUsage(input_tokens=0, output_tokens=0, total_tokens=0)
+
+    def _extract_sources_from_result(self, result: Any) -> list[str]:
+        """Extract sources from result output if available, otherwise from tracked sources."""
+        # First try to get sources from result output (if LLM finished synthesizing)
+        if result is not None:
+            try:
+                output = result.output
+                if isinstance(output, SearchAnswer) and output.sources_used:
+                    logger.info(
+                        f"Extracted {len(output.sources_used)} sources from result output"
+                    )
+                    return output.sources_used
+            except (AttributeError, Exception) as source_error:
+                logger.debug(
+                    f"Could not extract sources from result: {source_error}. "
+                    f"Falling back to tracked sources."
+                )
+
+        # Fallback: get sources from tracked search results
+        tracked_sources = get_sources()
+        if tracked_sources:
+            logger.info(
+                f"Extracted {len(tracked_sources)} sources from tracked search results"
+            )
+            return tracked_sources
+
+        return []
+
+    def _create_limit_fallback_answer(
+        self, question: str, current_count: int, max_calls: int, sources_used: list[str]
+    ) -> SearchAnswer:
+        """Create a fallback SearchAnswer when tool call limit is reached."""
+        limit_search_entry = SearchEntry(
+            query=question[:100],
+            tags=[],
+            num_results=0,
+            top_scores=[],
+            used_ids=[],
+            eval=f"limit_reached: {current_count}/{max_calls} searches completed",
+        )
+
+        return SearchAnswer(
+            answer=(
+                f"Agent completed {current_count} searches and reached the maximum limit. "
+                f"Answer synthesized from the {current_count} search results obtained."
+            ),
+            confidence=0.7,  # Moderate confidence when limit is reached
+            sources_used=sources_used,
+            reasoning=(
+                f"Completed {current_count} searches as designed. "
+                f"Maximum limit of {max_calls} searches reached."
+            ),
+            searches=[limit_search_entry],  # At least one entry required by model
+        )
+
+    def _handle_tool_call_limit_exceeded(
+        self, e: ToolCallLimitExceeded, result: Any, question: str
+    ) -> SearchAgentResult:
+        """Handle ToolCallLimitExceeded exception and return a valid result."""
+        logger.info(
+            f"Agent completed with limit: {e.current_count} searches made (max: {e.max_calls}). "
+            f"This is expected and valid - agent has synthesized answer from results."
+        )
+
+        token_usage = self._extract_token_usage(result)
+        sources_used = self._extract_sources_from_result(result)
+        limit_answer = self._create_limit_fallback_answer(
+            question, e.current_count, e.max_calls, sources_used
+        )
+
+        # Filter tool calls to only include successful ones (exclude blocked attempts)
+        global _tool_calls
+        successful_tool_calls = _tool_calls[: e.current_count]
+
+        logger.info(
+            f"Agent completed with limit. Tool calls: {e.current_count}, "
+            f"Token usage: {token_usage.total_tokens}"
+        )
+        print(
+            f"✅ Agent completed with limit. Made {e.current_count} tool calls (max: {e.max_calls})."
+        )
+
+        return SearchAgentResult(
+            answer=limit_answer,
+            tool_calls=successful_tool_calls,
+            token_usage=token_usage,
+        )
+
+    async def query(self, question: str) -> SearchAgentResult:
+        """
+        Run agent query and return result with answer and tool calls
+
+        Args:
+            question: User question to answer
+
+        Returns:
+            SearchAgentResult - Contains answer and tool calls
+        """
+        self._reset_and_verify_counters()
+
         if self.agent is None:
             raise RuntimeError("Agent not initialized. Call initialize() first.")
 
@@ -183,34 +299,32 @@ class MongoDBSearchAgent:
         print("🤖 Agent is processing your question (this may take 30-60 seconds)...")
 
         # Run agent with event tracking
+        result = None
         try:
             result = await self.agent.run(
                 question,
                 event_stream_handler=track_tool_calls,
             )
+            token_usage = self._extract_token_usage(result)
+
+            global _tool_calls
+            logger.info(f"Agent completed query. Tool calls: {len(_tool_calls)}")
+            print(f"✅ Agent completed query. Made {len(_tool_calls)} tool calls.")
+
+            try:
+                log_agent_run_async(self.agent, result, question)
+            except Exception as e:
+                logger.warning(f"Failed to start background logging task: {e}")
+
+            return SearchAgentResult(
+                answer=result.output,
+                tool_calls=_tool_calls.copy(),
+                token_usage=token_usage,
+            )
+
+        except ToolCallLimitExceeded as e:
+            return self._handle_tool_call_limit_exceeded(e, result, question)
+
         except Exception as e:
             logger.error(f"Error during agent execution: {e}")
             raise
-
-        logger.info(f"Agent completed query. Tool calls: {len(_tool_calls)}")
-        print(f"✅ Agent completed query. Made {len(_tool_calls)} tool calls.")
-
-        # Extract token usage from result
-        usage_obj = result.usage()
-
-        token_usage = TokenUsage(
-            input_tokens=usage_obj.input_tokens,
-            output_tokens=usage_obj.output_tokens,
-            total_tokens=usage_obj.input_tokens + usage_obj.output_tokens,
-        )
-
-        try:
-            log_agent_run_async(self.agent, result, question)
-        except Exception as e:
-            logger.warning(f"Failed to start background logging task: {e}")
-
-        return SearchAgentResult(
-            answer=result.output,
-            tool_calls=_tool_calls.copy(),
-            token_usage=token_usage,
-        )

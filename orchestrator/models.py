@@ -2,6 +2,8 @@
 
 from pydantic import BaseModel, Field
 
+from mongodb_agent.models import TokenUsage
+
 
 class OrchestratorAnswer(BaseModel):
     """Structured response from Orchestrator system"""
@@ -22,4 +24,15 @@ class OrchestratorAnswer(BaseModel):
     )
     sources_used: list[str] | None = Field(
         None, description="List of sources used (from RAG agent if applicable)"
+    )
+
+
+class OrchestratorAgentResult(BaseModel):
+    """Result from Orchestrator agent query including token usage"""
+
+    answer: OrchestratorAnswer = Field(
+        ..., description="The answer from the orchestrator"
+    )
+    token_usage: TokenUsage = Field(
+        ..., description="Token usage information from the orchestrator"
     )

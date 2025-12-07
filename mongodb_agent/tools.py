@@ -78,6 +78,7 @@ _extended_max_tool_calls = DEFAULT_MAX_TOOL_CALLS
 _current_max_tool_calls = DEFAULT_MAX_TOOL_CALLS
 _enable_adaptive_limit = False
 _counter_lock = threading.Lock()
+_sources: List[str] = []  # Track sources from search results
 
 
 def initialize_mongodb_collection(collection: Collection) -> None:
@@ -110,16 +111,31 @@ def set_adaptive_limit_config(
 
 def reset_tool_call_count() -> None:
     """Reset the tool call counter and limit (called at start of each query)"""
-    global _tool_call_count, _current_max_tool_calls
+    global _tool_call_count, _current_max_tool_calls, _sources
     with _counter_lock:
         _tool_call_count = DEFAULT_TOOL_CALL_COUNT
         _current_max_tool_calls = _initial_max_tool_calls
+        _sources = []  # Reset sources for new query
 
 
 def get_tool_call_count() -> int:
     global _tool_call_count
     with _counter_lock:
         return _tool_call_count
+
+
+def get_sources() -> List[str]:
+    """Get unique sources from all search results."""
+    global _sources
+    with _counter_lock:
+        # Return unique sources while preserving order
+        seen = set()
+        unique_sources = []
+        for source in _sources:
+            if source and source not in seen:
+                seen.add(source)
+                unique_sources.append(source)
+        return unique_sources
 
 
 def _check_and_increment_tool_call_count() -> int:
@@ -322,6 +338,13 @@ def search_mongodb(
     mongo_query = _build_mongodb_query(query, tags)
     raw_results = _execute_mongodb_search(_mongodb_collection, mongo_query, num_results)
     search_results = [_convert_doc_to_search_result(doc) for doc in raw_results]
+
+    # Track sources from search results
+    global _sources
+    with _counter_lock:
+        for result in search_results:
+            if result.source and result.source not in _sources:
+                _sources.append(result.source)
 
     # Check for early stopping criteria
     relevant_results = _get_relevant_results(search_results)

@@ -2,6 +2,8 @@
 
 import asyncio
 import json
+import subprocess
+import sys
 import traceback
 from pathlib import Path
 from typing import Any, Callable
@@ -166,10 +168,19 @@ def orchestrator_ask(
         )
 
         async def run_query():
-            answer = await orchestrator.query(question)
-            # Wrap in result-like object for _print_answer
-            result = type("Result", (), {"answer": answer, "tool_calls": []})()
-            _print_answer(result, question, verbose)
+            result = await orchestrator.query(question)
+            # result is now OrchestratorAgentResult with answer and token_usage
+            # Wrap in result-like object for _print_answer (which expects .answer and .tool_calls)
+            result_wrapper = type(
+                "Result", (), {"answer": result.answer, "tool_calls": []}
+            )()
+            _print_answer(result_wrapper, question, verbose)
+
+            if verbose:
+                typer.echo(
+                    f"\n💰 Token Usage: {result.token_usage.total_tokens} total "
+                    f"({result.token_usage.input_tokens} in, {result.token_usage.output_tokens} out)"
+                )
 
         _run_async(run_query, verbose)
     except Exception as e:
@@ -342,6 +353,64 @@ def evaluate(
             return result_path
 
         _run_async(execute_evaluation, verbose)
+    except Exception as e:
+        _handle_error(e, verbose)
+
+
+@app.command()
+def test(
+    path: str = typer.Option(
+        "tests",
+        "--path",
+        "-p",
+        help="Test path or file (default: 'tests' - runs all tests)",
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Verbose output (pytest -v)"
+    ),
+    markers: str = typer.Option(
+        None,
+        "--markers",
+        "-m",
+        help="Run tests matching markers (e.g., 'integration', 'not slow')",
+    ),
+    coverage: bool = typer.Option(
+        False, "--coverage", "-c", help="Run with coverage report"
+    ),
+):
+    """Run tests using pytest"""
+    try:
+        typer.echo(f"🧪 Running tests: {path}")
+        if markers:
+            typer.echo(f"📌 Filtering by markers: {markers}")
+
+        # Build pytest command
+        cmd = ["uv", "run", "pytest", path]
+
+        if verbose:
+            cmd.append("-v")
+        else:
+            cmd.append("-q")  # Quiet mode by default
+
+        if markers:
+            cmd.extend(["-m", markers])
+
+        if coverage:
+            cmd.extend(["--cov", ".", "--cov-report", "term-missing"])
+
+        typer.echo(f"🔧 Command: {' '.join(cmd)}\n")
+
+        # Run pytest
+        result = subprocess.run(cmd, cwd=Path.cwd())
+
+        if result.returncode == 0:
+            typer.echo("\n✅ All tests passed!")
+        else:
+            typer.echo(
+                f"\n❌ Tests failed with exit code {result.returncode}", err=True
+            )
+            sys.exit(result.returncode)
+
     except Exception as e:
         _handle_error(e, verbose)
 

@@ -2,6 +2,11 @@
 
 from orchestrator.agent import OrchestratorAgent
 from orchestrator.config import OrchestratorConfig
-from orchestrator.models import OrchestratorAnswer
+from orchestrator.models import OrchestratorAgentResult, OrchestratorAnswer
 
-__all__ = ["OrchestratorAgent", "OrchestratorConfig", "OrchestratorAnswer"]
+__all__ = [
+    "OrchestratorAgent",
+    "OrchestratorConfig",
+    "OrchestratorAnswer",
+    "OrchestratorAgentResult",
+]

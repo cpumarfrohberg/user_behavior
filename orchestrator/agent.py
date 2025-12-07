@@ -8,8 +8,9 @@ from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
 from config import DEFAULT_MAX_TOKENS, InstructionsConfig, InstructionType
+from mongodb_agent.models import TokenUsage
 from orchestrator.config import OrchestratorConfig
-from orchestrator.models import OrchestratorAnswer
+from orchestrator.models import OrchestratorAgentResult, OrchestratorAnswer
 from orchestrator.tools import (
     call_both_agents_parallel,
     call_cypher_query_agent,
@@ -60,15 +61,31 @@ class OrchestratorAgent:
 
         logger.info("Orchestrator Agent initialized successfully")
 
-    async def query(self, question: str) -> OrchestratorAnswer:
+    def _extract_token_usage(self, result: Any) -> TokenUsage:
+        """Extract token usage from result, with fallback to zero if unavailable."""
+        try:
+            usage_obj = result.usage()
+            return TokenUsage(
+                input_tokens=usage_obj.input_tokens,
+                output_tokens=usage_obj.output_tokens,
+                total_tokens=usage_obj.input_tokens + usage_obj.output_tokens,
+            )
+        except (AttributeError, Exception) as usage_error:
+            logger.warning(
+                f"Could not extract token usage from result: {usage_error}. "
+                f"Using fallback token usage."
+            )
+            return TokenUsage(input_tokens=0, output_tokens=0, total_tokens=0)
+
+    async def query(self, question: str) -> OrchestratorAgentResult:
         """
-        Run orchestrator query and return synthesized answer
+        Run orchestrator query and return result with answer and token usage
 
         Args:
             question: User question to answer
 
         Returns:
-            OrchestratorAnswer - Synthesized answer from appropriate agent(s)
+            OrchestratorAgentResult - Contains answer and token usage
         """
         if self.agent is None:
             raise RuntimeError("Agent not initialized. Call initialize() first.")
@@ -79,14 +96,19 @@ class OrchestratorAgent:
         )
 
         # Run agent - it will intelligently route to appropriate agent(s)
+        result = None
         try:
             result = await self.agent.run(question)
         except Exception as e:
             logger.error(f"Error during orchestrator execution: {e}")
             raise
 
+        # Extract token usage
+        token_usage = self._extract_token_usage(result)
+
         logger.info(
-            f"Orchestrator completed query. Agents used: {result.output.agents_used}"
+            f"Orchestrator completed query. Agents used: {result.output.agents_used}, "
+            f"Token usage: {token_usage.total_tokens}"
         )
         print(
             f"✅ Orchestrator completed. Used agents: {', '.join(result.output.agents_used)}"
@@ -125,4 +147,7 @@ class OrchestratorAgent:
         except Exception as e:
             logger.warning(f"Failed to start background logging task: {e}")
 
-        return result.output
+        return OrchestratorAgentResult(
+            answer=result.output,
+            token_usage=token_usage,
+        )
