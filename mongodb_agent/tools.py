@@ -9,27 +9,41 @@ from pymongo.collection import Collection
 
 from mongodb_agent.models import SearchResult
 
+DEFAULT_NUM_RESULTS = 5
+DEFAULT_TOOL_CALL_COUNT = 0
+DEFAULT_MAX_TOOL_CALLS = 5
+DEFAULT_SCORE = 0.0
+MIN_SIMILARITY_SCORE = 0.0
+MAX_SIMILARITY_SCORE = 1.0
+SCORE_NORMALIZATION_DIVISOR = 10.0
+QUERY_LOG_TRUNCATE_LENGTH = 50
+MONGODB_EXCLUDE_ID = 0
+
+# Search quality evaluation thresholds (normalized scores 0-1)
+MIN_RELEVANT_SCORE = 0.2  # Raw score 2.0
+HIGH_QUALITY_SCORE = 0.35  # Raw score 3.5
+MIN_RELEVANT_COUNT = 2
+
+# Quality score calculation weights
+HIGH_QUALITY_BONUS = 0.3
+COUNT_SCORE_WEIGHT = 0.5
+SCORE_COMPONENT_WEIGHT = 0.2
+
 logger = logging.getLogger(__name__)
 
 
 class ToolCallLimitExceeded(RuntimeError):
-    """
-    Exception raised when the maximum number of tool calls has been exceeded.
-
-    This is a HARD STOP - the agent MUST stop making tool calls and synthesize
-    an answer from the previous search results. Do NOT attempt to make another
-    tool call after receiving this exception.
-    """
+    """Exception raised when maximum tool calls limit is exceeded."""
 
     def __init__(self, current_count: int, max_calls: int):
         self.current_count = current_count
         self.max_calls = max_calls
         message = (
             f"🚫 HARD STOP: Maximum tool calls limit ({max_calls}) has been EXCEEDED "
-            f"(you made {current_count} calls).\n\n"
+            f"(you have already made {current_count} calls).\n\n"
             f"YOU MUST IMMEDIATELY:\n"
             f"1. STOP making any more tool calls\n"
-            f"2. Use the search results from your previous {current_count - 1} successful searches\n"
+            f"2. Use the search results from your previous {current_count} successful searches\n"
             f"3. Synthesize your final answer from those previous results\n"
             f"4. Return your answer in the required JSON format\n\n"
             f"Do NOT attempt another search. The limit is enforced and you have already "
@@ -38,188 +52,197 @@ class ToolCallLimitExceeded(RuntimeError):
         super().__init__(message)
 
 
-# Constants
-DEFAULT_NUM_RESULTS = 5  # Default number of search results to return
-DEFAULT_TOOL_CALL_COUNT = 0  # Initial/reset value for tool call counter
-DEFAULT_MAX_TOOL_CALLS = 5  # Safety limit - can be overridden via set_max_tool_calls()
-DEFAULT_SCORE = 0.0  # Default score value when not present
-MIN_SIMILARITY_SCORE = 0.0  # Minimum similarity score
-MAX_SIMILARITY_SCORE = 1.0  # Maximum similarity score
-SCORE_NORMALIZATION_DIVISOR = 10.0  # Divisor for normalizing MongoDB text scores
-QUERY_LOG_TRUNCATE_LENGTH = 50  # Maximum length for query in log messages
-MONGODB_EXCLUDE_ID = 0  # MongoDB projection value to exclude _id field
+class SearchQualityEvaluation:
+    """Evaluation result for search quality assessment"""
 
-# Global MongoDB collection (set during initialization)
+    def __init__(
+        self,
+        is_poor: bool,
+        quality_score: float,
+        relevant_count: int,
+        has_high_quality: bool,
+        avg_score: float,
+    ):
+        self.is_poor = is_poor
+        self.quality_score = quality_score
+        self.relevant_count = relevant_count
+        self.has_high_quality = has_high_quality
+        self.avg_score = avg_score
+
+
+# Global state
 _mongodb_collection: Collection | None = None
-# Global tool call counter (incremented by agent's event handler)
 _tool_call_count = DEFAULT_TOOL_CALL_COUNT
-_max_tool_calls = DEFAULT_MAX_TOOL_CALLS  # Safety limit - can be overridden
-# Thread lock for thread-safe counter operations
+_initial_max_tool_calls = DEFAULT_MAX_TOOL_CALLS
+_extended_max_tool_calls = DEFAULT_MAX_TOOL_CALLS
+_current_max_tool_calls = DEFAULT_MAX_TOOL_CALLS
+_enable_adaptive_limit = False
 _counter_lock = threading.Lock()
 
 
 def initialize_mongodb_collection(collection: Collection) -> None:
-    """
-    Initialize MongoDB collection for tool to use.
-
-    This should be called once before the agent starts making tool calls.
-
-    Args:
-        collection: MongoDB collection instance
-    """
     global _mongodb_collection
     _mongodb_collection = collection
     logger.info("MongoDB collection initialized for search tool")
 
 
 def set_max_tool_calls(max_calls: int) -> None:
-    """Set the maximum number of tool calls allowed"""
-    global _max_tool_calls
-    _max_tool_calls = max_calls
+    global _initial_max_tool_calls, _current_max_tool_calls
+    with _counter_lock:
+        _initial_max_tool_calls = max_calls
+        _current_max_tool_calls = max_calls
+
+
+def set_adaptive_limit_config(
+    initial_limit: int, extended_limit: int, enabled: bool
+) -> None:
+    global \
+        _initial_max_tool_calls, \
+        _extended_max_tool_calls, \
+        _current_max_tool_calls, \
+        _enable_adaptive_limit
+    with _counter_lock:
+        _initial_max_tool_calls = initial_limit
+        _extended_max_tool_calls = extended_limit
+        _current_max_tool_calls = initial_limit
+        _enable_adaptive_limit = enabled
 
 
 def reset_tool_call_count() -> None:
-    """Reset the tool call counter (called at start of each query)"""
-    global _tool_call_count
+    """Reset the tool call counter and limit (called at start of each query)"""
+    global _tool_call_count, _current_max_tool_calls
     with _counter_lock:
         _tool_call_count = DEFAULT_TOOL_CALL_COUNT
+        _current_max_tool_calls = _initial_max_tool_calls
 
 
 def get_tool_call_count() -> int:
-    """Get current tool call count (for verification)"""
     global _tool_call_count
     with _counter_lock:
-        return _tool_call_count
-
-
-def increment_tool_call_count() -> int:
-    """
-    Increment the tool call counter and return the new count.
-
-    This should be called by the event handler when a tool is invoked,
-    ensuring the counter is synchronized with actual tool calls.
-
-    Returns:
-        The new tool call count after incrementing
-    """
-    global _tool_call_count
-    with _counter_lock:
-        _tool_call_count += 1
         return _tool_call_count
 
 
 def _check_and_increment_tool_call_count() -> int:
-    """
-    Thread-safe: Check limit BEFORE incrementing, then increment if allowed.
-    This prevents the 4th call from even starting.
-
-    This function atomically:
-    1. Checks if we're already at the limit
-    2. If yes, raises ToolCallLimitExceeded immediately (before incrementing)
-    3. If no, increments the counter and returns the new count
-
-    Returns:
-        The new tool call count after incrementing
-
-    Raises:
-        ToolCallLimitExceeded: If maximum tool calls limit would be exceeded
-    """
-    global _tool_call_count, _max_tool_calls
+    """Check limit before incrementing, raise exception if limit reached."""
+    global _tool_call_count, _current_max_tool_calls
 
     with _counter_lock:
-        # Check BEFORE incrementing - if we're at limit, raise immediately
-        if _tool_call_count >= _max_tool_calls:
+        if _tool_call_count >= _current_max_tool_calls:
             logger.warning(
-                f"Tool call limit reached: {_tool_call_count} >= {_max_tool_calls}. "
+                f"Tool call limit reached: {_tool_call_count} >= {_current_max_tool_calls}. "
                 f"Blocking call before it starts."
             )
-            raise ToolCallLimitExceeded(_tool_call_count + 1, _max_tool_calls)
+            raise ToolCallLimitExceeded(_tool_call_count, _current_max_tool_calls)
 
-        # Safe to increment
         _tool_call_count += 1
-        logger.info(f"✅ Tool call #{_tool_call_count} of {_max_tool_calls} allowed")
+        logger.info(
+            f"✅ Tool call #{_tool_call_count} of {_current_max_tool_calls} allowed"
+        )
         return _tool_call_count
 
 
-def _check_tool_call_limit() -> None:
-    """
-    Check if tool call limit has been exceeded and raise exception if so.
-
-    DEPRECATED: This is kept for backward compatibility but should not be used.
-    Use _check_and_increment_tool_call_count() instead for pre-call validation.
-
-    Raises:
-        ToolCallLimitExceeded: If maximum tool calls limit has been exceeded
-    """
-    global _tool_call_count, _max_tool_calls
-
-    with _counter_lock:
-        if _tool_call_count > _max_tool_calls:
-            logger.warning(
-                f"Maximum tool calls ({_max_tool_calls}) exceeded (current: {_tool_call_count}). "
-                f"Raising ToolCallLimitExceeded - agent MUST STOP and synthesize from previous searches."
-            )
-            raise ToolCallLimitExceeded(_tool_call_count, _max_tool_calls)
-
-
 def _build_mongodb_query(query: str, tags: List[str] | None) -> dict:
-    """
-    Build MongoDB text search query with optional tag filtering.
-
-    Args:
-        query: Search query string
-        tags: Optional list of tags to filter by
-
-    Returns:
-        MongoDB query dictionary
-    """
+    """Build MongoDB text search query with optional tag filtering."""
     mongo_query: dict = {"$text": {"$search": query}}
-
     if tags:
         mongo_query["tags"] = {"$in": tags}
-
     return mongo_query
 
 
 def _normalize_similarity_score(text_score: float) -> float:
-    """
-    Normalize MongoDB text search score to 0-1 range.
-
-    Args:
-        text_score: Raw MongoDB text search score
-
-    Returns:
-        Normalized similarity score between 0.0 and 1.0
-    """
     if text_score <= DEFAULT_SCORE:
         return MIN_SIMILARITY_SCORE
+    return min(text_score / SCORE_NORMALIZATION_DIVISOR, MAX_SIMILARITY_SCORE)
 
-    normalized = min(text_score / SCORE_NORMALIZATION_DIVISOR, MAX_SIMILARITY_SCORE)
-    return normalized
+
+def _get_relevant_results(search_results: List[SearchResult]) -> List[SearchResult]:
+    return [
+        r
+        for r in search_results
+        if r.similarity_score is not None and r.similarity_score >= MIN_RELEVANT_SCORE
+    ]
+
+
+def _has_high_quality_result(search_results: List[SearchResult]) -> bool:
+    return any(
+        r.similarity_score is not None and r.similarity_score >= HIGH_QUALITY_SCORE
+        for r in search_results
+    )
+
+
+def _calculate_average_score(search_results: List[SearchResult]) -> float:
+    scores_with_values = [
+        r.similarity_score for r in search_results if r.similarity_score is not None
+    ]
+    if not scores_with_values:
+        return MIN_SIMILARITY_SCORE
+    return sum(scores_with_values) / len(scores_with_values)
+
+
+def _calculate_quality_score(
+    relevant_count: int, has_high_quality: bool, avg_score: float
+) -> float:
+    count_score = min(relevant_count / MIN_RELEVANT_COUNT, MAX_SIMILARITY_SCORE)
+    high_quality_bonus = (
+        HIGH_QUALITY_BONUS if has_high_quality else MIN_SIMILARITY_SCORE
+    )
+    score_component = min(avg_score / MAX_SIMILARITY_SCORE, MAX_SIMILARITY_SCORE)
+
+    quality_score = (
+        (count_score * COUNT_SCORE_WEIGHT)
+        + (score_component * SCORE_COMPONENT_WEIGHT)
+        + high_quality_bonus
+    )
+    return min(quality_score, MAX_SIMILARITY_SCORE)
+
+
+def _is_poor_quality(relevant_count: int, has_high_quality: bool) -> bool:
+    """Determine if results are poor enough to warrant extension."""
+    return relevant_count < MIN_RELEVANT_COUNT and not has_high_quality
+
+
+def evaluate_search_quality(
+    search_results: List[SearchResult],
+) -> SearchQualityEvaluation:
+    """Evaluate if search results are poor quality and warrant limit extension."""
+    if not search_results:
+        return SearchQualityEvaluation(
+            is_poor=True,
+            quality_score=MIN_SIMILARITY_SCORE,
+            relevant_count=0,
+            has_high_quality=False,
+            avg_score=MIN_SIMILARITY_SCORE,
+        )
+
+    relevant_results = _get_relevant_results(search_results)
+    relevant_count = len(relevant_results)
+    has_high_quality = _has_high_quality_result(search_results)
+    avg_score = _calculate_average_score(search_results)
+    quality_score = _calculate_quality_score(
+        relevant_count, has_high_quality, avg_score
+    )
+    is_poor = _is_poor_quality(relevant_count, has_high_quality)
+
+    return SearchQualityEvaluation(
+        is_poor=is_poor,
+        quality_score=quality_score,
+        relevant_count=relevant_count,
+        has_high_quality=has_high_quality,
+        avg_score=avg_score,
+    )
 
 
 def _convert_doc_to_search_result(doc: dict) -> SearchResult:
-    """
-    Convert MongoDB document to SearchResult model.
-
-    Args:
-        doc: MongoDB document with title, body, score, question_id, tags
-
-    Returns:
-        SearchResult model instance
-    """
-    # Combine title and body for content
+    """Convert MongoDB document to SearchResult model."""
     content_parts = []
     if doc.get("title"):
         content_parts.append(doc["title"])
     if doc.get("body"):
         content_parts.append(doc["body"])
 
-    # Normalize text search score
     text_score = doc.get("score", DEFAULT_SCORE)
     similarity_score = _normalize_similarity_score(text_score)
 
-    # Handle tags - ensure it's a list
     tags_list = doc.get("tags", [])
     if not isinstance(tags_list, list):
         tags_list = []
@@ -236,20 +259,7 @@ def _convert_doc_to_search_result(doc: dict) -> SearchResult:
 def _execute_mongodb_search(
     collection: Collection, query: dict, num_results: int
 ) -> List[dict]:
-    """
-    Execute MongoDB text search query and return raw documents.
-
-    Args:
-        collection: MongoDB collection instance
-        query: MongoDB query dictionary
-        num_results: Maximum number of results to return
-
-    Returns:
-        List of MongoDB documents
-
-    Raises:
-        RuntimeError: If MongoDB search fails
-    """
+    """Execute MongoDB text search query and return raw documents."""
     try:
         cursor = (
             collection.find(
@@ -271,9 +281,6 @@ def search_mongodb(
     """
     Search MongoDB for relevant content using text search.
 
-    Use this tool to find information about user behavior patterns,
-    questions, answers, and discussions from StackExchange.
-
     ⚠️ IMPORTANT LIMIT: You have a maximum of 3 tool calls per query. After 3 calls,
     this tool will raise ToolCallLimitExceeded and you MUST stop and synthesize your answer.
     Most questions can be answered with just 1-2 searches. Be decisive and stop early.
@@ -285,31 +292,29 @@ def search_mongodb(
 
     Returns:
         List of search results with content, source, and text search scores.
-        Each result includes: content, source (question_ID), title, similarity_score, tags.
 
     Raises:
         RuntimeError: If MongoDB collection is not initialized or search fails
         ToolCallLimitExceeded: If you have exceeded the maximum of 3 tool calls.
-            When this exception is raised:
-            - STOP immediately - do NOT make another tool call
-            - Use the results from your previous successful searches
-            - Synthesize your answer from those previous results
-            - Return your answer in the required JSON format
-            This is a HARD LIMIT enforced by the system.
     """
     global _tool_call_count, _mongodb_collection
 
-    # Validate collection is initialized
     if _mongodb_collection is None:
         raise RuntimeError(
             "MongoDB collection not initialized. Call initialize_mongodb_collection first."
         )
 
-    # Pre-call validation: Check limit BEFORE incrementing (prevents 4th call from starting)
-    # This is thread-safe and atomic - if we're at limit, exception is raised immediately
-    current_count = _check_and_increment_tool_call_count()
+    with _counter_lock:
+        if _tool_call_count > _current_max_tool_calls:
+            logger.warning(
+                f"Counter state suspicious: {_tool_call_count} > {_current_max_tool_calls}. "
+                f"This suggests counter wasn't reset between queries. Resetting now."
+            )
+            _tool_call_count = DEFAULT_TOOL_CALL_COUNT
+            _current_max_tool_calls = _initial_max_tool_calls
 
-    # Build query, execute search, and transform results
+    _check_and_increment_tool_call_count()
+
     mongo_query = _build_mongodb_query(query, tags)
     raw_results = _execute_mongodb_search(_mongodb_collection, mongo_query, num_results)
     search_results = [_convert_doc_to_search_result(doc) for doc in raw_results]

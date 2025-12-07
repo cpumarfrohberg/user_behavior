@@ -5,14 +5,24 @@ import json
 import logging
 from typing import Any, List
 
-from pydantic_ai import Agent
+from pydantic_ai import Agent, ModelSettings
 from pydantic_ai.messages import FunctionToolCallEvent
+from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.openai import OpenAIProvider
 from pymongo import MongoClient
 
+from config import DEFAULT_MAX_TOKENS
 from config.instructions import InstructionsConfig, InstructionType
 from mongodb_agent.config import MongoDBConfig
 from mongodb_agent.models import SearchAgentResult, SearchAnswer
-from mongodb_agent.tools import search_mongodb
+from mongodb_agent.tools import (
+    get_tool_call_count,
+    initialize_mongodb_collection,
+    reset_tool_call_count,
+    search_mongodb,
+    set_adaptive_limit_config,
+)
+from monitoring.agent_logging import log_agent_run_async
 
 logger = logging.getLogger(__name__)
 
@@ -103,34 +113,21 @@ class MongoDBSearchAgent:
                 f"Text search may not work if index doesn't exist."
             )
 
-        # Initialize the tool function with MongoDB collection
-        from mongodb_agent.tools import initialize_mongodb_collection
-
         initialize_mongodb_collection(self.collection)
 
-        # Set max tool calls limit from config
-        from mongodb_agent.tools import set_max_tool_calls
+        set_adaptive_limit_config(
+            initial_limit=self.config.initial_max_tool_calls,
+            extended_limit=self.config.extended_max_tool_calls,
+            enabled=self.config.enable_adaptive_limit,
+        )
 
-        set_max_tool_calls(self.config.max_tool_calls)
-
-        # Get instructions from config
         instructions = InstructionsConfig.INSTRUCTIONS[InstructionType.MONGODB_AGENT]
 
-        # Initialize OpenAI model
-        from pydantic_ai.models.openai import OpenAIChatModel
-        from pydantic_ai.providers.openai import OpenAIProvider
-
-        # Use OpenAI provider (no base_url needed for OpenAI API)
         model = OpenAIChatModel(
             model_name=self.config.openai_model,
             provider=OpenAIProvider(),
         )
         logger.info(f"Using OpenAI model: {self.config.openai_model}")
-
-        # Create agent with max_tokens limit for speed
-        from pydantic_ai import ModelSettings
-
-        from config import DEFAULT_MAX_TOKENS
 
         self.agent = Agent(
             name="mongodb_agent",
@@ -157,19 +154,26 @@ class MongoDBSearchAgent:
         global _tool_calls
         _tool_calls = []
 
-        # Reset tool call counter for this query
-        from mongodb_agent.tools import get_tool_call_count, reset_tool_call_count
-
         reset_tool_call_count()
         # Verify counter is reset to 0
         initial_count = get_tool_call_count()
         if initial_count != 0:
-            logger.warning(
-                f"⚠️ Counter not properly reset! Expected 0, got {initial_count}. "
+            logger.error(
+                f"CRITICAL: Counter not properly reset! Expected 0, got {initial_count}. "
+                f"This indicates a potential race condition or counter corruption. "
                 f"Resetting again..."
             )
             reset_tool_call_count()
             initial_count = get_tool_call_count()
+            if initial_count != 0:
+                raise RuntimeError(
+                    f"Failed to reset tool call counter after 2 attempts. "
+                    f"Counter stuck at {initial_count}. This is a critical error."
+                )
+            logger.warning(
+                f"Counter reset succeeded on second attempt. "
+                f"This should not happen - investigate potential race conditions."
+            )
         logger.info(f"✅ Tool call counter reset to {initial_count} (verified)")
 
         if self.agent is None:
@@ -191,10 +195,7 @@ class MongoDBSearchAgent:
         logger.info(f"Agent completed query. Tool calls: {len(_tool_calls)}")
         print(f"✅ Agent completed query. Made {len(_tool_calls)} tool calls.")
 
-        # Log agent run to database (non-blocking background task)
         try:
-            from monitoring.agent_logging import log_agent_run_async
-
             log_agent_run_async(self.agent, result, question)
         except Exception as e:
             logger.warning(f"Failed to start background logging task: {e}")

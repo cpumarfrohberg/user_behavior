@@ -63,6 +63,9 @@ async def run_agent_stream(
     tool_calls_container: Any,
 ) -> OrchestratorAnswer | None:
     """Run orchestrator agent with streaming output and tool call tracking."""
+    logger = logging.getLogger(__name__)
+    logger.info(f"Starting agent stream for question: {question[:100]}...")
+
     orchestrator_agent = _get_orchestrator_agent()
     st.session_state.tool_calls = []  # Reset tool calls for new query
 
@@ -76,6 +79,8 @@ async def run_agent_stream(
     )
     handler.reset()
     parser = StreamingJSONParser(handler)
+
+    logger.info("Streaming parser and handler initialized")
 
     async def _handle_tool_call(ctx: Any, event: Any) -> None:
         """Event handler to track and display tool calls."""
@@ -100,9 +105,14 @@ async def run_agent_stream(
 
     try:
         # Run agent with streaming
+        logger.info("Starting orchestrator agent run_stream...")
         async with orchestrator_agent.agent.run_stream(
             question, event_stream_handler=_handle_tool_call
         ) as result:
+            logger.info("Agent stream context entered, starting to stream responses...")
+            text_chunks_received = 0
+            total_text_length = 0
+
             # Stream responses and parse JSON incrementally with debouncing
             async for item, last in result.stream_responses(
                 debounce_by=STREAM_DEBOUNCE
@@ -111,22 +121,51 @@ async def run_agent_stream(
                     # Extract text from streaming parts and feed to parser
                     # pydantic-ai streams structured output as text parts
                     if hasattr(part, "text") and part.text:
+                        text_chunks_received += 1
+                        total_text_length += len(part.text)
+                        logger.debug(
+                            f"Received text chunk #{text_chunks_received} (length: {len(part.text)}, total: {total_text_length}): {part.text[:200]}..."
+                        )
                         try:
                             parser.parse_incremental(part.text)
-                        except Exception:
-                            # Ignore parsing errors for incomplete JSON chunks
-                            # This is expected as JSON may be incomplete during streaming
+                        except Exception as parse_error:
+                            # Log parsing errors with details instead of silently ignoring
+                            logger.warning(
+                                f"JSON parsing error on chunk #{text_chunks_received}: {parse_error}. "
+                                f"Chunk preview: {part.text[:100]}..."
+                            )
+                            # Still pass - this is expected for incomplete JSON chunks
                             pass
+
+            logger.info(
+                f"Streaming completed. Received {text_chunks_received} text chunks, "
+                f"total length: {total_text_length} characters"
+            )
+
+            # Log handler state after streaming
+            logger.info(
+                f"Handler state after streaming - "
+                f"answer: {len(handler.current_answer) if handler.current_answer else 0} chars, "
+                f"confidence: {handler.current_confidence}, "
+                f"reasoning: {len(handler.current_reasoning) if handler.current_reasoning else 0} chars, "
+                f"agents: {handler.agents_list}, "
+                f"sources: {len(handler.sources_list) if handler.sources_list else 0} items"
+            )
 
             # Try to construct output from handler state (faster than re-parsing)
             # Only call get_output() if handler parsing failed or is incomplete
             try:
-                if (
+                handler_complete = (
                     handler.current_answer
                     and handler.current_confidence is not None
                     and handler.current_reasoning
                     and handler.agents_list
-                ):
+                )
+
+                if handler_complete:
+                    logger.info(
+                        "Handler state is complete, constructing OrchestratorAnswer from handler state"
+                    )
                     # Construct from handler state (already parsed during streaming)
                     final_output = OrchestratorAnswer(
                         answer=handler.current_answer,
@@ -137,36 +176,160 @@ async def run_agent_stream(
                         if handler.sources_list
                         else None,
                     )
+                    logger.info(
+                        f"Successfully constructed OrchestratorAnswer from handler state"
+                    )
                 else:
+                    logger.warning(
+                        f"Handler state incomplete - missing: "
+                        f"answer={not handler.current_answer}, "
+                        f"confidence={handler.current_confidence is None}, "
+                        f"reasoning={not handler.current_reasoning}, "
+                        f"agents={not handler.agents_list}. "
+                        f"Falling back to get_output()..."
+                    )
                     # Fallback: handler parsing incomplete, use get_output()
                     final_output = await result.get_output()
-            except Exception:
+                    logger.info(
+                        f"get_output() returned: type={type(final_output)}, value={final_output}"
+                    )
+            except Exception as construct_error:
                 # If construction fails, fall back to get_output()
-                final_output = await result.get_output()
+                logger.error(
+                    f"Error constructing OrchestratorAnswer from handler state: {construct_error}. "
+                    f"Falling back to get_output()...",
+                    exc_info=True,
+                )
+                try:
+                    final_output = await result.get_output()
+                    logger.info(
+                        f"get_output() returned after error: type={type(final_output)}, value={final_output}"
+                    )
+                except Exception as get_output_error:
+                    logger.error(
+                        f"get_output() also failed: {get_output_error}", exc_info=True
+                    )
+                    raise
         st.session_state.last_result = final_output
 
+        logger.info(
+            f"Final output type: {type(final_output)}, "
+            f"is None: {final_output is None}"
+        )
+        if final_output:
+            logger.info(
+                f"Final output content - "
+                f"answer length: {len(final_output.answer) if hasattr(final_output, 'answer') else 'N/A'}, "
+                f"confidence: {final_output.confidence if hasattr(final_output, 'confidence') else 'N/A'}, "
+                f"agents: {final_output.agents_used if hasattr(final_output, 'agents_used') else 'N/A'}"
+            )
+
         # Ensure all containers are updated with final values
+        logger.info("Updating UI containers with final values...")
+        containers_updated = 0
+
         if handler.answer_container and handler.current_answer:
             handler.answer_container.markdown(handler.current_answer)
+            containers_updated += 1
+            logger.info("Updated answer container")
+        elif (
+            handler.answer_container
+            and final_output
+            and hasattr(final_output, "answer")
+        ):
+            handler.answer_container.markdown(final_output.answer)
+            containers_updated += 1
+            logger.info("Updated answer container from final_output")
+        else:
+            logger.warning("Answer container not updated - no answer available")
+
         if handler.confidence_container and handler.current_confidence is not None:
             handler.confidence_container.metric(
                 "Confidence", f"{handler.current_confidence:.2%}"
             )
+            containers_updated += 1
+            logger.info("Updated confidence container")
+        elif (
+            handler.confidence_container
+            and final_output
+            and hasattr(final_output, "confidence")
+        ):
+            handler.confidence_container.metric(
+                "Confidence", f"{final_output.confidence:.2%}"
+            )
+            containers_updated += 1
+            logger.info("Updated confidence container from final_output")
+        else:
+            logger.warning(
+                "Confidence container not updated - no confidence value available"
+            )
+
         if handler.reasoning_container and handler.current_reasoning:
             handler.reasoning_container.markdown(
                 f"**Reasoning:** {handler.current_reasoning}"
             )
+            containers_updated += 1
+            logger.info("Updated reasoning container")
+        elif (
+            handler.reasoning_container
+            and final_output
+            and hasattr(final_output, "reasoning")
+        ):
+            handler.reasoning_container.markdown(
+                f"**Reasoning:** {final_output.reasoning}"
+            )
+            containers_updated += 1
+            logger.info("Updated reasoning container from final_output")
+        else:
+            logger.warning("Reasoning container not updated - no reasoning available")
+
         if handler.sources_container and handler.sources_list:
             sources_text = "\n".join(f"- {s}" for s in handler.sources_list)
             handler.sources_container.markdown(f"**Sources:**\n{sources_text}")
+            containers_updated += 1
+            logger.info(
+                f"Updated sources container with {len(handler.sources_list)} sources"
+            )
+        elif (
+            handler.sources_container
+            and final_output
+            and hasattr(final_output, "sources_used")
+            and final_output.sources_used
+        ):
+            sources_text = "\n".join(f"- {s}" for s in final_output.sources_used)
+            handler.sources_container.markdown(f"**Sources:**\n{sources_text}")
+            containers_updated += 1
+            logger.info(
+                f"Updated sources container from final_output with {len(final_output.sources_used)} sources"
+            )
+        else:
+            logger.warning("Sources container not updated - no sources available")
+
         if handler.agents_container and handler.agents_list:
             agents_text = ", ".join(handler.agents_list)
             handler.agents_container.markdown(f"**Agents Used:** {agents_text}")
+            containers_updated += 1
+            logger.info("Updated agents container")
+        elif (
+            handler.agents_container
+            and final_output
+            and hasattr(final_output, "agents_used")
+        ):
+            agents_text = ", ".join(final_output.agents_used)
+            handler.agents_container.markdown(f"**Agents Used:** {agents_text}")
+            containers_updated += 1
+            logger.info("Updated agents container from final_output")
+        else:
+            logger.warning("Agents container not updated - no agents list available")
 
+        logger.info(
+            f"Updated {containers_updated} UI containers. Returning final_output."
+        )
         return final_output
     except Exception as e:
         logger = logging.getLogger(__name__)
         logger.error(f"Error during agent execution: {e}", exc_info=True)
+        logger.error(f"Exception type: {type(e).__name__}, message: {str(e)}")
         st.error(f"⚠️ An error occurred: {e}")
         st.info("Please try again or rephrase your question.")
         return None
