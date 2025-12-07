@@ -61,14 +61,37 @@ class OrchestratorAnswerHandler(JSONParserHandler):
         """Remove stats (confidence, reasoning, agents) from answer text if present."""
         import re
 
-        # Remove patterns like "Confidence: 50.00%" or "confidence 50.00%"
+        # Remove patterns like "Confidence\n\n70.00%" or "Confidence: 50.00%" (including multiline with spacing)
         answer_text = re.sub(
-            r"(?i)(confidence|onfidence)\s*:?\s*\d+\.?\d*%?\s*\n?", "", answer_text
+            r"(?i)(confidence|onfidence)\s*\n*\s*\d+\.?\d*%?\s*\n*",
+            "",
+            answer_text,
+            flags=re.MULTILINE,
         )
-        # Remove "Reasoning: ..." patterns
-        answer_text = re.sub(r"(?i)reasoning\s*:?\s*[^\n]+\n?", "", answer_text)
-        # Remove "Agents Used: ..." patterns
-        answer_text = re.sub(r"(?i)agents?\s+used\s*:?\s*[^\n]+\n?", "", answer_text)
+        # Remove "Reasoning: ..." patterns (including multiline until next section or end)
+        answer_text = re.sub(
+            r"(?i)reasoning\s*:?\s*[^\n]+(?:\n|$)", "", answer_text, flags=re.MULTILINE
+        )
+        # Remove "Agents Used: ..." patterns (including multiline)
+        answer_text = re.sub(
+            r"(?i)agents?\s+used\s*:?\s*[^\n]+(?:\n|$)",
+            "",
+            answer_text,
+            flags=re.MULTILINE,
+        )
+        # Remove any standalone "Confidence", "Reasoning", "Agents Used" headers (with optional spacing)
+        answer_text = re.sub(
+            r"(?i)^\s*(confidence|reasoning|agents?\s+used)\s*$",
+            "",
+            answer_text,
+            flags=re.MULTILINE,
+        )
+        # Remove percentage-only lines (like "70.00%" on its own line)
+        answer_text = re.sub(
+            r"^\s*\d+\.?\d*%?\s*$", "", answer_text, flags=re.MULTILINE
+        )
+        # Clean up multiple newlines
+        answer_text = re.sub(r"\n{3,}", "\n\n", answer_text)
         return answer_text.strip()
 
     def on_field_end(
@@ -113,7 +136,7 @@ class OrchestratorAnswerHandler(JSONParserHandler):
         if field_name == "answer" and path == "":
             # Accumulate answer text
             self.current_answer += chunk
-            # Update UI immediately for better streaming experience
+            # Update UI (delay handled by debounce in streamlit_app.py to avoid blocking event loop)
             if self.answer_container:
                 # Filter out stats from answer text if they appear
                 answer_text = self._filter_stats_from_answer(self.current_answer)

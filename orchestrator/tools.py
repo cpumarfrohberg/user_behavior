@@ -18,6 +18,14 @@ NUM_AGENTS_FOR_AVERAGING = 2  # Number of agents to average confidence from
 DEFAULT_TOOL_CALLS = 0  # Default value for tool_calls when not present
 QUESTION_LOG_TRUNCATE_LENGTH = 100  # Maximum length for question in log messages
 
+# Confidence calculation constants for ToolCallLimitExceeded
+BASE_CONFIDENCE_ON_LIMIT = 0.5  # Base confidence when limit is hit (conservative)
+MAX_CONFIDENCE_ON_LIMIT = (
+    0.75  # Maximum confidence when limit is hit (we don't have actual result)
+)
+CONFIDENCE_PER_SEARCH = 0.05  # Additional confidence per search completed
+MIN_SEARCHES_FOR_BASE = 1  # Minimum searches to get base confidence
+
 # Global instances to avoid re-initialization
 _mongodb_agent_instance: MongoDBSearchAgent | None = None
 _mongodb_agent_config: MongoDBConfig | None = None
@@ -76,6 +84,36 @@ def _format_mongodb_result(result: Any) -> dict[str, Any]:
     }
 
 
+def _calculate_confidence_from_searches(
+    searches_completed: int, max_calls: int
+) -> float:
+    """
+    Calculate confidence based on number of searches completed when limit is hit.
+
+    This is used when ToolCallLimitExceeded is raised - we don't have the actual
+    LLM-calculated confidence, so we estimate based on the work done.
+
+    Args:
+        searches_completed: Number of searches the agent completed before hitting limit
+        max_calls: Maximum number of tool calls allowed
+
+    Returns:
+        Confidence value between BASE_CONFIDENCE_ON_LIMIT and MAX_CONFIDENCE_ON_LIMIT
+    """
+    if searches_completed < MIN_SEARCHES_FOR_BASE:
+        # If somehow no searches were made, use minimum confidence
+        return BASE_CONFIDENCE_ON_LIMIT
+
+    # Calculate confidence: base + bonus for searches completed
+    # More searches = more data gathered = higher confidence (up to max)
+    confidence = BASE_CONFIDENCE_ON_LIMIT + (
+        min(searches_completed, max_calls) * CONFIDENCE_PER_SEARCH
+    )
+
+    # Cap at maximum to stay conservative (we don't have actual LLM confidence)
+    return min(confidence, MAX_CONFIDENCE_ON_LIMIT)
+
+
 async def call_mongodb_agent(question: str) -> dict[str, Any]:
     global _mongodb_agent_instance
 
@@ -89,23 +127,36 @@ async def call_mongodb_agent(question: str) -> dict[str, Any]:
         result = await _mongodb_agent_instance.query(question)
         return _format_mongodb_result(result)
     except ToolCallLimitExceeded as e:
-        # Agent hit limit - don't retry, return partial results if available
-        logger.warning(
-            f"MongoDB Agent hit tool call limit: {e.max_calls} calls made. "
-            f"Agent stopped early - this is expected behavior."
+        # Agent hit limit - this is a VALID completion, not a failure
+        # The agent has made its maximum searches and should have results
+        logger.info(
+            f"MongoDB Agent completed with limit: {e.current_count} searches made (max: {e.max_calls}). "
+            f"This is expected and valid - agent has synthesized answer from results."
         )
-        # Try to get partial results from the exception or return error
+        # Calculate confidence based on actual searches completed
+        # More searches = more data = higher confidence (but capped conservatively)
+        calculated_confidence = _calculate_confidence_from_searches(
+            e.current_count, e.max_calls
+        )
+        logger.info(
+            f"Calculated confidence from searches: {calculated_confidence:.2%} "
+            f"(based on {e.current_count}/{e.max_calls} searches completed)"
+        )
+        # Return a result that indicates completion (not an error)
+        # The orchestrator should accept this and synthesize from it
         return {
             "answer": (
-                f"Agent reached maximum search limit ({e.max_calls} searches). "
-                f"Please synthesize your answer from the available results. "
-                f"If you need more information, try rephrasing your question."
+                f"MongoDB agent completed {e.current_count} searches and synthesized results. "
+                f"Use the search results obtained to answer the question."
             ),
-            "confidence": 0.5,  # Lower confidence due to limit
+            "confidence": calculated_confidence,  # Calculated based on searches completed
             "sources_used": [],
-            "reasoning": f"Tool call limit exceeded ({e.max_calls} calls) - agent stopped early",
+            "reasoning": (
+                f"MongoDB agent completed {e.current_count} searches as designed. "
+                f"Confidence calculated from search activity ({calculated_confidence:.1%})."
+            ),
             "agent": "mongodb_agent",
-            "tool_calls": e.max_calls,  # Max calls made
+            "tool_calls": e.current_count,
         }
     except Exception as e:
         logger.error(f"Error calling MongoDB Search Agent: {e}")

@@ -15,7 +15,9 @@ from orchestrator.models import OrchestratorAnswer
 from stream_handler import OrchestratorAnswerHandler
 
 # Streaming performance constants
-STREAM_DEBOUNCE = 0.01  # Debounce streaming updates (seconds)
+STREAM_DEBOUNCE = (
+    0.25  # Debounce streaming updates (seconds) - increased for better visibility
+)
 
 # Configure logging
 logging.basicConfig(
@@ -56,11 +58,12 @@ def _get_orchestrator_agent() -> OrchestratorAgent:
 async def run_agent_stream(
     question: str,
     answer_container: Any,
-    confidence_container: Any,
-    reasoning_container: Any,
-    sources_container: Any,
-    agents_container: Any,
     tool_calls_container: Any,
+    sidebar_confidence_container: Any,
+    sidebar_reasoning_container: Any,
+    sidebar_agents_container: Any,
+    sidebar_sources_container: Any,
+    sidebar_initial_message: Any,
 ) -> OrchestratorAnswer | None:
     """Run orchestrator agent with streaming output and tool call tracking."""
     logger = logging.getLogger(__name__)
@@ -69,13 +72,17 @@ async def run_agent_stream(
     orchestrator_agent = _get_orchestrator_agent()
     st.session_state.tool_calls = []  # Reset tool calls for new query
 
+    # Clear initial message in sidebar when query starts
+    if sidebar_initial_message:
+        sidebar_initial_message.empty()
+
     # Initialize streaming JSON parser with handler
     handler = OrchestratorAnswerHandler(
         answer_container=answer_container,
-        confidence_container=confidence_container,
-        reasoning_container=reasoning_container,
-        sources_container=sources_container,
-        agents_container=agents_container,
+        confidence_container=sidebar_confidence_container,
+        reasoning_container=sidebar_reasoning_container,
+        sources_container=sidebar_sources_container,
+        agents_container=sidebar_agents_container,
     )
     handler.reset()
     parser = StreamingJSONParser(handler)
@@ -128,6 +135,12 @@ async def run_agent_stream(
                         )
                         try:
                             parser.parse_incremental(part.text)
+                            # Add delay to make streaming visible on frontend
+                            import asyncio
+
+                            await asyncio.sleep(
+                                0.2
+                            )  # 200ms delay per chunk to make streaming clearly visible
                         except Exception as parse_error:
                             # Log parsing errors with details instead of silently ignoring
                             logger.warning(
@@ -233,13 +246,40 @@ async def run_agent_stream(
             import re
 
             answer_text = handler.current_answer
+            # Remove confidence patterns (including multiline with spacing)
             answer_text = re.sub(
-                r"(?i)(confidence|onfidence)\s*:?\s*\d+\.?\d*%?\s*\n?", "", answer_text
+                r"(?i)(confidence|onfidence)\s*\n*\s*\d+\.?\d*%?\s*\n*",
+                "",
+                answer_text,
+                flags=re.MULTILINE,
             )
-            answer_text = re.sub(r"(?i)reasoning\s*:?\s*[^\n]+\n?", "", answer_text)
+            # Remove reasoning patterns
             answer_text = re.sub(
-                r"(?i)agents?\s+used\s*:?\s*[^\n]+\n?", "", answer_text
+                r"(?i)reasoning\s*:?\s*[^\n]+(?:\n|$)",
+                "",
+                answer_text,
+                flags=re.MULTILINE,
             )
+            # Remove agents used patterns
+            answer_text = re.sub(
+                r"(?i)agents?\s+used\s*:?\s*[^\n]+(?:\n|$)",
+                "",
+                answer_text,
+                flags=re.MULTILINE,
+            )
+            # Remove standalone headers
+            answer_text = re.sub(
+                r"(?i)^\s*(confidence|reasoning|agents?\s+used)\s*$",
+                "",
+                answer_text,
+                flags=re.MULTILINE,
+            )
+            # Remove percentage-only lines
+            answer_text = re.sub(
+                r"^\s*\d+\.?\d*%?\s*$", "", answer_text, flags=re.MULTILINE
+            )
+            # Clean up multiple newlines
+            answer_text = re.sub(r"\n{3,}", "\n\n", answer_text)
             handler.answer_container.markdown(answer_text.strip())
             containers_updated += 1
             logger.info("Updated answer container")
@@ -252,13 +292,40 @@ async def run_agent_stream(
             import re
 
             answer_text = final_output.answer
+            # Remove confidence patterns (including multiline with spacing)
             answer_text = re.sub(
-                r"(?i)(confidence|onfidence)\s*:?\s*\d+\.?\d*%?\s*\n?", "", answer_text
+                r"(?i)(confidence|onfidence)\s*\n*\s*\d+\.?\d*%?\s*\n*",
+                "",
+                answer_text,
+                flags=re.MULTILINE,
             )
-            answer_text = re.sub(r"(?i)reasoning\s*:?\s*[^\n]+\n?", "", answer_text)
+            # Remove reasoning patterns
             answer_text = re.sub(
-                r"(?i)agents?\s+used\s*:?\s*[^\n]+\n?", "", answer_text
+                r"(?i)reasoning\s*:?\s*[^\n]+(?:\n|$)",
+                "",
+                answer_text,
+                flags=re.MULTILINE,
             )
+            # Remove agents used patterns
+            answer_text = re.sub(
+                r"(?i)agents?\s+used\s*:?\s*[^\n]+(?:\n|$)",
+                "",
+                answer_text,
+                flags=re.MULTILINE,
+            )
+            # Remove standalone headers
+            answer_text = re.sub(
+                r"(?i)^\s*(confidence|reasoning|agents?\s+used)\s*$",
+                "",
+                answer_text,
+                flags=re.MULTILINE,
+            )
+            # Remove percentage-only lines
+            answer_text = re.sub(
+                r"^\s*\d+\.?\d*%?\s*$", "", answer_text, flags=re.MULTILINE
+            )
+            # Clean up multiple newlines
+            answer_text = re.sub(r"\n{3,}", "\n\n", answer_text)
             handler.answer_container.markdown(answer_text.strip())
             containers_updated += 1
             logger.info("Updated answer container from final_output")
@@ -407,14 +474,18 @@ def _render_chat_page() -> None:
             st.rerun()
         st.divider()
         st.header("Statistics")
-        result = st.session_state.get("last_result")
-        if result:
-            if hasattr(result, "confidence") and result.confidence is not None:
-                st.metric("Confidence", f"{result.confidence:.2%}")
-            if hasattr(result, "agents_used") and result.agents_used:
-                st.markdown(f"**Agents Used:** {', '.join(result.agents_used)}")
+        # Create empty containers for real-time stats updates during streaming
+        sidebar_confidence_container = st.empty()
+        sidebar_reasoning_container = st.empty()
+        sidebar_agents_container = st.empty()
+        sidebar_sources_container = st.empty()
+        # Container for initial message (will be cleared when stats appear)
+        sidebar_initial_message = st.empty()
+        # Show initial message if no query has been made yet
+        if not st.session_state.get("last_result"):
+            sidebar_initial_message.info("No queries yet. Ask a question to see stats.")
         else:
-            st.info("No queries yet. Ask a question to see stats.")
+            sidebar_initial_message.empty()
 
     if not st.session_state.messages:
         st.info("👋 Start a conversation by asking a question about user behavior!")
@@ -431,29 +502,22 @@ def _render_chat_page() -> None:
             st.markdown(prompt)
 
         with st.chat_message("assistant"):
-            # Create containers for streaming
+            # Create containers for streaming (only answer and tool calls in chat area)
             answer_container = st.empty()
             tool_calls_container = st.empty()
             tool_calls_container.info("🤖 Agent is processing your question...")
-
-            col1, col2 = st.columns([2, 1])
-            with col1:
-                sources_container = st.empty()
-            with col2:
-                confidence_container = st.empty()
-                reasoning_container = st.empty()
-                agents_container = st.empty()
 
             try:
                 result = asyncio.run(
                     run_agent_stream(
                         prompt,
                         answer_container,
-                        confidence_container,
-                        reasoning_container,
-                        sources_container,
-                        agents_container,
                         tool_calls_container,
+                        sidebar_confidence_container,
+                        sidebar_reasoning_container,
+                        sidebar_agents_container,
+                        sidebar_sources_container,
+                        sidebar_initial_message,
                     )
                 )
 
@@ -462,17 +526,40 @@ def _render_chat_page() -> None:
                     import re
 
                     answer_text = result.answer
+                    # Remove confidence patterns (including multiline with spacing)
                     answer_text = re.sub(
-                        r"(?i)(confidence|onfidence)\s*:?\s*\d+\.?\d*%?\s*\n?",
+                        r"(?i)(confidence|onfidence)\s*\n*\s*\d+\.?\d*%?\s*\n*",
                         "",
                         answer_text,
+                        flags=re.MULTILINE,
                     )
+                    # Remove reasoning patterns
                     answer_text = re.sub(
-                        r"(?i)reasoning\s*:?\s*[^\n]+\n?", "", answer_text
+                        r"(?i)reasoning\s*:?\s*[^\n]+(?:\n|$)",
+                        "",
+                        answer_text,
+                        flags=re.MULTILINE,
                     )
+                    # Remove agents used patterns
                     answer_text = re.sub(
-                        r"(?i)agents?\s+used\s*:?\s*[^\n]+\n?", "", answer_text
+                        r"(?i)agents?\s+used\s*:?\s*[^\n]+(?:\n|$)",
+                        "",
+                        answer_text,
+                        flags=re.MULTILINE,
                     )
+                    # Remove standalone headers
+                    answer_text = re.sub(
+                        r"(?i)^\s*(confidence|reasoning|agents?\s+used)\s*$",
+                        "",
+                        answer_text,
+                        flags=re.MULTILINE,
+                    )
+                    # Remove percentage-only lines
+                    answer_text = re.sub(
+                        r"^\s*\d+\.?\d*%?\s*$", "", answer_text, flags=re.MULTILINE
+                    )
+                    # Clean up multiple newlines
+                    answer_text = re.sub(r"\n{3,}", "\n\n", answer_text)
                     st.session_state.messages.append(
                         {"role": "assistant", "content": answer_text.strip()}
                     )
