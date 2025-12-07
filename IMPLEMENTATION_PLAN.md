@@ -10,235 +10,250 @@ This plan covers the remaining features to be implemented for the user behavior 
 - ✅ Phase 3: Streamlit UI with streaming support
 - ✅ Basic caching optimizations
 - ✅ MongoDB Agent: Tool call limit enforcement (hard stop with exception)
-- ✅ MongoDB Agent: Counter synchronization fix
+- ✅ MongoDB Agent: Counter synchronization fix (thread-safe with Lock)
 - ✅ MongoDB Agent: Schema fix (added `searches` field to `SearchAnswer`)
+- ✅ MongoDB Agent: Pre-call validation (prevents 4th call from starting)
+- ✅ MongoDB Agent: Counter reset verification
+- ✅ Performance: Async database logging
+- ✅ Performance: Optimize `get_output()` call in streamlit_app.py
+- ✅ Performance: Parallel agent execution (`call_both_agents_parallel`)
 
-**Critical Issues to Fix (URGENT):**
-1. **MongoDB Agent Tool Call Limit Bug**: Agent still making 4-5 searches despite 3-call limit
-2. **Counter Race Condition**: Counter reaching 5+ in concurrent scenarios
-3. **Agent Instruction Compliance**: Agent not stopping after 3 searches as instructed
+**Status Update:**
+- Phase 0 (MongoDB Agent Limit Fix) is **COMPLETE** - all fixes implemented and working
+- Phase 1 (Performance Optimization) is **MOSTLY COMPLETE** - async logging and parallel execution done
 
 **Still To Do:**
-1. **Fix MongoDB Agent Limit Enforcement** (do this first - blocking issue!)
-2. **Performance Optimization**: Address execution speed bottlenecks
-3. **Cypher Query Agent**: Agent that translates prompts to Cypher queries and queries Neo4j
-4. **Evaluation**: Framework to evaluate the Cypher Query Agent
-5. **Guardrails**: Safety and quality controls for agents
-6. **Local LLM Support**: Future enhancement for cloud deployment
+1. **Instruction Improvements**: Enhance agent instructions based on reference project analysis
+2. **Cypher Query Agent**: Full implementation with proper instructions
+3. **Evaluation Framework**: For Cypher Query Agent
+4. **Guardrails**: Safety and quality controls for agents
+5. **Local LLM Support**: Future enhancement for cloud deployment
 
 ---
 
-## Phase 0: Fix MongoDB Agent Tool Call Limit (URGENT - BLOCKING)
+## Phase 0: Instruction Improvements (Based on Reference Project Analysis)
 
-### 0.1 Problem Analysis
+### 0.1 MongoDB Agent Instruction Enhancements
 
-**Current Issues:**
-1. **Agent making 4-5 searches**: Despite 3-call limit, agent attempts 4-5 searches
-2. **Counter reaching 5+**: Counter shows 5 calls when max is 3, suggesting race condition
-3. **Agent not following instructions**: Agent doesn't stop after 3 searches as instructed
-4. **Concurrent tool calls**: When orchestrator calls agents in parallel, counter may increment incorrectly
-5. **Exception handling**: When limit exceeded, orchestrator retries, causing multiple failed attempts
+**Files:** `config/instructions.py`
 
-**Root Causes:**
-- Counter increment happens in event handler, but pydantic_ai may call tools concurrently
-- Event handler may fire multiple times for the same tool call (nested events)
-- Agent instructions are too complex - agent isn't following the "stop after 3" rule
-- No validation that agent stops after 3rd search before making 4th
+**Improvements Needed:**
 
-### 0.2 Solutions
+1. **Add Explicit Schema/Field Constraints**
+   - List all available MongoDB fields (title, body, tags, question_id, score, site, collected_at)
+   - Explicitly state: "DO NOT search for fields that don't exist"
+   - Add field descriptions and usage guidelines
 
-**0.2.1 Fix Counter Race Condition**
-- **File**: `mongodb_agent/agent.py`, `mongodb_agent/tools.py`
-- **Problem**: Event handler increments counter, but concurrent tool calls cause race condition
-- **Solution**:
-  - Use thread-safe counter (asyncio.Lock or threading.Lock)
-  - OR: Check counter BEFORE incrementing in event handler
-  - OR: Move counter increment to tool function (but check before incrementing)
-- **Expected Impact**: Prevents counter from exceeding limit incorrectly
+2. **Add Concrete Query Examples**
+   - Simple keyword search: `"form abandonment"`
+   - Multi-word search: `"user frustration login"`
+   - Tag-filtered search: `search_mongodb("confusion", tags=["user-behavior"])`
+   - Synonym/alternative search: `"user satisfaction"` (to infer frustrations)
+   - Show 4-5 examples with expected outcomes
 
-**0.2.2 Simplify Instructions**
-- **File**: `config/instructions.py`
-- **Problem**: Instructions are too verbose (160+ lines), agent misses critical "stop after 3" rule
-- **Solution**:
-  - Move "MAXIMUM 3 SEARCHES" to very top
-  - Simplify evaluation to: "2+ relevant results? → STOP. Less? → Continue (if under 3)"
-  - Remove redundant explanations
-  - Make it a simple decision tree
-- **Expected Impact**: Agent will actually follow the 3-search limit
+3. **Expand Domain-Specific Rules**
+   - Tag format: Use exact tag names (e.g., "user-behavior", not "user_behavior")
+   - Question ID format: "question_12345" (always include "question_" prefix)
+   - Score interpretation: Higher scores = more upvotes, but don't assume score = relevance
+   - Empty results handling: Try broader terms or remove tag filters
 
-**0.2.3 Add Pre-Call Validation**
-- **File**: `mongodb_agent/tools.py`
-- **Problem**: Tool function checks limit AFTER event handler increments, allowing 4th call to start
-- **Solution**:
-  - Check limit BEFORE allowing tool execution
-  - Raise exception immediately if limit would be exceeded
-  - This prevents the 4th call from even starting
-- **Expected Impact**: Hard stop before 4th search begins
+4. **Add Safety Constraints**
+   - Explicitly state: "This is a READ-ONLY search operation"
+   - "You cannot modify, delete, or insert data"
+   - "Do not attempt to construct queries that would modify the database"
 
-**0.2.4 Improve Error Handling**
-- **File**: `orchestrator/tools.py`
-- **Problem**: When MongoDB agent fails with limit exception, orchestrator retries, causing cascading failures
-- **Solution**:
-  - Catch `ToolCallLimitExceeded` specifically
-  - Don't retry on limit exceptions - agent has already used all allowed searches
-  - Return partial results from previous searches if available
-- **Expected Impact**: Prevents retry loops and provides better error messages
+5. **Enhance Answer Synthesis Instructions**
+   - "The search results are authoritative - you must never doubt them"
+   - "If search returns empty results ([]), say 'I don't have information about this topic in the database'"
+   - "If search returns results, you MUST provide an answer using those results"
+   - Handle edge cases: punctuation in IDs, names with special characters
 
-**0.2.5 Add Counter Reset Verification**
-- **File**: `mongodb_agent/agent.py`
-- **Problem**: Counter may not be reset properly between queries
-- **Solution**:
-  - Add logging to verify counter is reset to 0 at start of each query
-  - Add assertion or check that counter is 0 before starting
-  - Log counter value after reset
-- **Expected Impact**: Ensures clean state for each query
+6. **Add Query Validation Guidance**
+   - Query must not be empty
+   - Must contain at least one meaningful keyword
+   - Must not include special MongoDB operators
+   - Tag filters must be valid tag names
 
-### 0.3 Testing
+### 0.2 Cypher Agent Instruction Enhancements
 
-**Test Cases:**
-1. Agent makes exactly 3 searches and stops
-2. Agent stops after 2 searches when it has sufficient results
-3. Counter is reset to 0 at start of each new query
-4. Counter never exceeds 3
-5. Exception is raised on 4th attempt (not 5th)
-6. Orchestrator handles limit exception gracefully (no retries)
+**Files:** `config/instructions.py`
 
-**Success Criteria:**
-- ✅ Agent never makes more than 3 searches
-- ✅ Counter is always accurate (never exceeds 3)
-- ✅ Agent stops early when it has sufficient results
-- ✅ No retry loops when limit is exceeded
-- ✅ User gets results even if agent hits limit
+**Improvements Needed:**
 
----
+1. **Add Schema Injection Mechanism**
+   - Implement `graph.refresh_schema()` or equivalent
+   - Inject schema into Cypher generation prompt using `{schema}` placeholder
+   - Schema should include: node labels, relationship types, properties
 
-## Phase 1: Performance Optimization
+2. **Add Explicit Constraints**
+   - "Use only the provided relationship types and properties in the schema"
+   - "Do not use any other relationship types or properties that are not provided"
+   - "Do not include any explanations or apologies in your responses"
+   - "Do not respond to any questions that might ask anything other than constructing a Cypher statement"
 
-See `PERFORMANCE_OPTIMIZATION_ISSUE.md` for detailed analysis and solutions.
+3. **Add Concrete Cypher Query Examples (4-5 examples)**
+   - Simple query: "Which user has asked the most questions?"
+   - Relationship traversal: "What tags are most commonly associated with user-behavior questions?"
+   - Aggregation: "What percentage of questions with tag 'user-behavior' have accepted answers?"
+   - Pattern detection: "Which users who asked questions about 'frustration' also answered questions about 'satisfaction'?"
+   - Complex correlation: "What patterns lead from questions about 'confusion' to questions about 'satisfaction'?"
 
-### 1.1 Quick Wins
+4. **Add Domain-Specific Rules for StackExchange**
+   - Node labels: User, Question, Answer, Comment, Tag
+   - Relationship types: ASKED, ANSWERED, COMMENTED, HAS_ANSWER, HAS_COMMENT, HAS_TAG, ACCEPTED
+   - Tag name format: Use exact tag names (e.g., "user-behavior")
+   - Question/Answer ID formats: question_id, answer_id (integers)
+   - NULL handling: Use `IS NULL` or `IS NOT NULL` when analyzing missing properties
 
-**1.1.1 Async Database Logging**
-- **File**: `monitoring/agent_logging.py`
-- Move database logging to background task using `asyncio.create_task()`
-- Don't await logging completion
-- **Expected Impact**: ~100-500ms improvement per query
+5. **Add Safety Constraints**
+   - "Do not run any queries that would add to or delete from the database"
+   - "Never return embedding properties in your queries"
+   - "Never include the statement 'GROUP BY' in your query"
+   - "Make sure to alias all statements that follow as WITH statement"
+   - "If you need to divide numbers, make sure to filter the denominator to be non zero"
 
-**1.1.2 Optimize `get_output()` Call**
-- **File**: `streamlit_app.py`
-- Check if we can construct output from handler state instead
-- Or cache parsed output during streaming
-- Only call `get_output()` if handler parsing failed
-- **Expected Impact**: ~50-200ms improvement
+6. **Add Answer Synthesis Instructions**
+   - Separate section or explicit rules for transforming graph results to natural language
+   - "The provided information is authoritative, you must never doubt it"
+   - "If the provided information is empty, say you don't know the answer"
+   - "If the information is not empty, you must provide an answer using the results"
+   - Handle edge cases: empty arrays, time units, names with punctuation
 
-**1.1.3 Reduce MongoDB Tool Calls**
-- **File**: `mongodb_agent/config.py`, `config/instructions.py`
-- Reduce max_tool_calls from 10 to 7
-- Improve MongoDB agent instructions to be more decisive
-- Optimize search queries to be more targeted
-- **Expected Impact**: ~30-40% reduction in MongoDB agent execution time
+7. **Add Query Validation**
+   - Implement Cypher query validation before execution
+   - Catch syntax errors early
+   - Validate against schema
 
-### 1.2 High Impact Optimizations
+### 0.3 Orchestrator Agent Instruction Enhancements
 
-**1.2.1 Parallel Agent Execution**
-- **Files**: `orchestrator/agent.py`, `orchestrator/tools.py`
-- Modify orchestrator to detect when both agents are needed
-- Use `asyncio.gather()` to run MongoDB and Cypher agents concurrently
-- Combine results after both complete
-- **Expected Impact**: ~50% reduction in time when both agents are called
+**Files:** `config/instructions.py`
 
-**1.2.2 Optimize Tool Call Strategy**
-- **Files**: `mongodb_agent/agent.py`, `config/instructions.py`
-- Improve agent instructions to make better initial search decisions
-- Use search result quality to decide if more searches needed
-- Consider batching multiple searches when possible
-- **Expected Impact**: ~20-30% reduction in tool call overhead
+**Improvements Needed:**
 
-### 1.3 Testing and Monitoring
+1. **Enhance Result Handling Instructions**
+   - "If an agent returns empty results or 'I don't know', this is VALID - do not retry or reformulate"
+   - "If both agents return results, synthesize them even if they seem contradictory"
+   - "If one agent fails and the other succeeds, use the successful result and note the failure in routing log"
+   - "Never say 'I don't have information' if any agent returned results - use what you have"
 
-**1.3.1 Add Performance Metrics**
-- Log timing for each phase (orchestrator, MongoDB agent, tool calls, etc.)
-- Track number of API calls and tool calls
-- Monitor database logging time
+2. **Add More Explicit "DO NOT" Constraints**
+   - "DO NOT call the same agent twice with different queries"
+   - "DO NOT reformulate queries and retry after receiving results"
+   - "DO NOT ignore agent results because they seem incomplete"
+   - "DO NOT add explanations about why you chose an agent in the answer field"
+   - "DO NOT expose internal routing logic in the final answer"
 
-**1.3.2 Baseline Measurement**
-- Measure current execution time for typical queries
-- Document metrics before optimizations
-
-**1.3.3 After Each Optimization**
-- Measure improvement
-- Verify functionality still works
-- Check for regressions
+3. **Add Concrete Error Handling Examples**
+   - "If MongoDB agent returns 'limit reached' → This is SUCCESS, synthesize from it"
+   - "If Cypher agent returns syntax error → Note in routing log, use MongoDB result if available"
+   - "If both agents called and one fails → Use successful result, note failure in 'notes' field"
+   - "If only agent called fails → Return error message suggesting user rephrase question"
 
 ---
 
-## Phase 2: Cypher Query Agent Implementation
+## Phase 1: Cypher Query Agent Implementation
 
-### 2.1 Create Cypher Query Agent Module
+### 1.1 Create Cypher Query Agent Module Structure
 
-**New File:** `cypher_agent/__init__.py`
-**New File:** `cypher_agent/config.py`
-**New File:** `cypher_agent/models.py`
-**New File:** `cypher_agent/agent.py`
-**New File:** `cypher_agent/tools.py`
+**New Files:**
+- `cypher_agent/__init__.py` - Module exports
+- `cypher_agent/config.py` - Configuration class
+- `cypher_agent/models.py` - Data models (CypherAnswer, CypherAgentResult)
+- `cypher_agent/agent.py` - Main agent class
+- `cypher_agent/tools.py` - Neo4j query execution tool
 
-**Structure:**
-- `CypherAgentConfig`: Configuration class (similar to `MongoDBConfig`)
-- `CypherAnswer`: Pydantic model for structured output (similar to `SearchAnswer`)
-- `CypherAgentResult`: Result model with answer and tool calls
-- `CypherQueryAgent`: Main agent class
-
-### 2.2 Implement Neo4j Connection
+### 1.2 Implement Neo4j Schema Retrieval
 
 **File:** `cypher_agent/tools.py`
 
-- Function: `execute_cypher_query(query: str)` - executes Cypher query on Neo4j
-- Use `neo4j.GraphDatabase.driver()` with config from `config/__init__.py`
-- Handle query errors gracefully
-- Return results as structured data
-- Add query validation/sanitization
+**Function:** `get_neo4j_schema() -> str`
+- Connect to Neo4j using `neo4j.GraphDatabase.driver()`
+- Query schema: `CALL db.schema.visualization()` or `CALL db.schema.nodeTypeProperties()`
+- Format schema as text for injection into prompt
+- Cache schema (refresh periodically or on initialization)
+- Return formatted string with node labels, relationship types, and properties
 
-### 2.3 Implement Agent Class
+### 1.3 Implement Neo4j Connection and Query Execution
+
+**File:** `cypher_agent/tools.py`
+
+**Function:** `execute_cypher_query(query: str) -> dict`
+- Use `neo4j.GraphDatabase.driver()` with config from `config/__init__.py`
+- Validate query before execution (check for write operations, syntax)
+- Execute query and return results as structured data
+- Handle query errors gracefully (syntax errors, timeout, connection errors)
+- Return format: `{"results": [...], "query": query, "error": None or str}`
+
+**Query Validation:**
+- Check for write operations: `CREATE`, `DELETE`, `SET`, `REMOVE`, `MERGE` (with write intent)
+- Basic syntax validation (balanced parentheses, brackets)
+- Schema validation (check node labels and relationship types exist)
+
+### 1.4 Implement Agent Class
 
 **File:** `cypher_agent/agent.py`
 
-- Similar structure to `MongoDBSearchAgent`
+**Structure:**
+- `CypherQueryAgent` class (similar to `MongoDBSearchAgent`)
 - Initialize with Neo4j connection
+- Get schema on initialization and inject into instructions
 - Use instructions from `config/instructions.py` (`InstructionType.CYPHER_QUERY_AGENT`)
 - Tool: `execute_cypher_query`
-- Output type: `CypherAnswer` (with answer, confidence, reasoning, sources)
+- Output type: `CypherAnswer` (with answer, confidence, reasoning, sources_used, query_used)
 - Track tool calls similar to MongoDB agent
+- Handle errors and return structured results
 
-### 2.4 Update Orchestrator
+**Key Methods:**
+- `initialize()` - Connect to Neo4j, get schema, create agent
+- `query(question: str) -> CypherAgentResult` - Run query and return result
+- `_get_schema()` - Retrieve and format Neo4j schema
+- `_inject_schema_into_instructions(schema: str) -> str` - Inject schema into prompt
 
-**File:** `orchestrator/tools.py`
-
-- Replace placeholder `call_cypher_query_agent()` with real implementation
-- Initialize `CypherQueryAgent` instance (similar to MongoDB agent pattern)
-- Call agent and return structured response
-- Handle errors and return appropriate dict format
-
-### 2.5 Add Cypher Agent Models
+### 1.5 Add Cypher Agent Models
 
 **File:** `cypher_agent/models.py`
 
-- `CypherAnswer`: answer, confidence, reasoning, sources_used, query_used
-- `CypherAgentResult`: answer (CypherAnswer), tool_calls (list[dict])
+**Models:**
+- `CypherAnswer`: answer, confidence, reasoning, sources_used (list of node IDs), query_used (the Cypher query)
+- `CypherAgentResult`: answer (CypherAnswer), tool_calls (list[dict]), token_usage (TokenUsage)
 - Similar structure to `mongodb_agent/models.py`
+
+### 1.6 Update Orchestrator Integration
+
+**File:** `orchestrator/tools.py`
+
+**Changes:**
+- Replace placeholder `call_cypher_query_agent()` with real implementation
+- Initialize `CypherQueryAgent` instance (similar to MongoDB agent pattern)
+- Use global instance pattern (like MongoDB agent)
+- Call agent and return structured response
+- Handle errors and return appropriate dict format
+- Match return format of `call_mongodb_agent()` for consistency
+
+### 1.7 Update Instructions with Schema Injection
+
+**File:** `config/instructions.py`
+
+**Changes:**
+- Update `InstructionType.CYPHER_QUERY_AGENT` instructions
+- Add `{schema}` placeholder for dynamic schema injection
+- Include all improvements from Phase 0.2 (examples, constraints, safety rules)
+- Add answer synthesis section
 
 ---
 
-## Phase 3: Evaluation Framework for Cypher Agent
+## Phase 2: Evaluation Framework for Cypher Agent
 
-### 3.1 Create Ground Truth for Cypher Queries
+### 2.1 Create Ground Truth for Cypher Queries
 
 **New File:** `evals/generate_cypher_ground_truth.py`
 
 - Generate questions that require graph traversal
-- Expected Cypher queries or expected results
+- Include expected Cypher queries or expected results
 - Store in JSON format similar to MongoDB ground truth
+- Include questions for: simple queries, relationship traversal, aggregations, pattern detection
 
-### 3.2 Extend Evaluation Framework
+### 2.2 Extend Evaluation Framework
 
 **File:** `evals/evaluate.py`
 
@@ -247,15 +262,16 @@ See `PERFORMANCE_OPTIMIZATION_ISSUE.md` for detailed analysis and solutions.
 - Use judge for answer quality (reuse existing judge)
 - Calculate metrics: query_success_rate, result_accuracy, query_complexity
 
-### 3.3 Add Cypher-Specific Metrics
+### 2.3 Add Cypher-Specific Metrics
 
 **New File:** `evals/cypher_metrics.py`
 
 - Function: `validate_cypher_query(query)` - basic syntax validation
 - Function: `compare_query_results(expected, actual)` - compare graph results
 - Function: `calculate_query_efficiency(query, execution_time)` - performance metric
+- Function: `check_query_safety(query)` - ensure no write operations
 
-### 3.4 Update CLI
+### 2.4 Update CLI
 
 **File:** `cli.py`
 
@@ -264,180 +280,76 @@ See `PERFORMANCE_OPTIMIZATION_ISSUE.md` for detailed analysis and solutions.
 
 ---
 
-## Phase 4: Integration and Testing
+## Phase 3: Integration and Testing
 
-### 4.1 Update Dependencies
+### 3.1 Update Dependencies
 
 **File:** `pyproject.toml`
 
-- Ensure all new dependencies are listed
-- Add `psycopg2-binary` or `asyncpg` for PostgreSQL
-- Update version constraints if needed
+- Ensure `neo4j` package is listed
+- Verify version constraints
+- Add any missing dependencies for schema retrieval
 
-### 4.2 Update Docker Compose
+### 3.2 Update Docker Compose
 
 **File:** `docker-compose.yml`
 
-- Verify PostgreSQL service is properly configured
+- Verify Neo4j service is properly configured
 - Ensure all services (MongoDB, Neo4j, PostgreSQL) work together
 - Add health checks if needed
 
-### 4.3 Update Documentation
+### 3.3 Update Documentation
 
 **File:** `README.md`
 
 - Add Cypher Query Agent documentation
 - Update architecture diagram
 - Document integration with existing agents
+- Add examples of Cypher agent queries
 
-### 4.4 Integration Testing
+### 3.4 Integration Testing
 
 - Test Cypher agent with various query types
 - Test orchestrator routing to Cypher agent
 - Test evaluation framework for Cypher agent
 - Test end-to-end flow with all agents
+- Test schema injection and dynamic instructions
+- Test error handling (invalid queries, connection failures)
 
 ---
 
-## Phase 5: Guardrails Implementation
+## Phase 4: Guardrails Implementation
 
-### 5.1 Create Guardrails Module Structure
+### 4.1 Create Guardrails Module Structure
 
-**New File:** `guardrails/__init__.py`
-**New File:** `guardrails/checks.py`
-**New File:** `guardrails/config.py`
+**New Files:**
+- `guardrails/__init__.py` - Core guardrail infrastructure
+- `guardrails/checks.py` - Guardrail check functions
+- `guardrails/config.py` - Guardrail configuration
 
 **Core Components:**
-- `GuardrailException` class (custom exception for guardrail failures)
-- `GuardrailFunctionOutput` dataclass (output structure for guardrails)
-- `run_with_guardrails()` function (main orchestration function)
+- `GuardrailException` class
+- `GuardrailFunctionOutput` dataclass
+- `run_with_guardrails()` function
 
-**Key code:**
-```python
-# guardrails/__init__.py
-from dataclasses import dataclass
-import asyncio
-
-@dataclass
-class GuardrailFunctionOutput:
-    output_info: str
-    tripwire_triggered: bool
-
-class GuardrailException(Exception):
-    def __init__(self, message: str, info: GuardrailFunctionOutput):
-        super().__init__(message)
-        self.info = info
-
-async def run_with_guardrails(agent_coroutine, guardrails):
-    """
-    Run agent_coroutine while multiple guardrails monitor it.
-    If any guardrail triggers, cancels the agent and raises GuardrailException.
-    """
-    agent_task = asyncio.create_task(agent_coroutine)
-    guard_tasks = [asyncio.create_task(g) for g in guardrails]
-
-    try:
-        await asyncio.gather(agent_task, *guard_tasks)
-        return agent_task.result()
-    except GuardrailException as e:
-        print("[guardrail fired]", e.info)
-        agent_task.cancel()
-        for t in guard_tasks:
-            t.cancel()
-        await asyncio.gather(*guard_tasks, return_exceptions=True)
-        raise
-```
-
-### 5.2 Create Guardrail Check Functions
+### 4.2 Create Guardrail Check Functions
 
 **File:** `guardrails/checks.py`
 
-**Implementations:**
-1. **Input validation guardrail:**
-   - Check for prohibited topics in user input
-   - Raises `GuardrailException` if prohibited topic found
+1. **Input validation guardrail:** Check for prohibited topics
+2. **Cost control guardrail:** Monitor token usage or execution time
+3. **Output quality guardrail:** Validate output quality after agent completes
 
-2. **Cost control guardrail:**
-   - Monitor token usage or execution time
-   - Raises `GuardrailException` if limits exceeded
+### 4.3 Integrate into All Agents
 
-3. **Output quality guardrail:**
-   - Validate output quality after agent completes
-   - Checks confidence threshold if available
-   - Raises `GuardrailException` if quality too low
+**Files:** `mongodb_agent/agent.py`, `orchestrator/agent.py`, `cypher_agent/agent.py`
 
-### 5.3 Create Guardrail Configuration
-
-**File:** `guardrails/config.py`
-
-- `GuardrailConfig` dataclass with enable flags
-- Configuration for: input validation, cost control, output quality
-- Settings: prohibited topics, max tokens, max time, min confidence
-
-### 5.4 Integrate into MongoDB Agent
-
-**File:** `mongodb_agent/agent.py`
-
-**Changes:**
 - Add optional `guardrails` parameter to `query()` method
 - Wrap `self.agent.run()` call in `run_with_guardrails()` if guardrails provided
-- Update method signature: `async def query(self, question: str, guardrails: list = None) -> SearchAgentResult`
-
-**Integration point:**
-```python
-# In query() method, replace:
-result = await self.agent.run(question, event_stream_handler=track_tool_calls)
-
-# With:
-agent_coroutine = self.agent.run(question, event_stream_handler=track_tool_calls)
-if guardrails:
-    result = await run_with_guardrails(agent_coroutine, guardrails)
-else:
-    result = await agent_coroutine
-```
-
-### 5.5 Integrate into Orchestrator Agent
-
-**File:** `orchestrator/agent.py`
-
-**Changes:**
-- Add optional `guardrails` parameter to `query()` method
-- Wrap `self.agent.run()` call in `run_with_guardrails()` if guardrails provided
-- Update method signature: `async def query(self, question: str, guardrails: list = None) -> OrchestratorAnswer`
-
-### 5.6 Integrate into Cypher Agent
-
-**File:** `cypher_agent/agent.py`
-
-**Changes:**
-- Add optional `guardrails` parameter to `query()` method
-- Wrap `self.agent.run()` call in `run_with_guardrails()` if guardrails provided
-- Similar pattern to MongoDB and Orchestrator agents
-
-### 5.7 Update CLI to Support Guardrails
-
-**File:** `cli.py`
-
-**Changes:**
-- Add `--guardrails` flag to agent commands
-- Create helper function to build guardrail list from config
-- Pass guardrails to agent query methods
-
-### 5.8 Update Tests
-
-**Files:** `tests/mongodb_agent/test_agent.py`, `tests/orchestrator/test_agent.py`
-
-**Test cases:**
-- Agent runs successfully without guardrails
-- Agent is cancelled when guardrail triggers
-- Multiple guardrails can run in parallel
-- GuardrailException is properly raised and handled
 
 ---
 
-## Phase 6: Local LLM Support (Future Enhancement)
-
-### 6.1 Architecture for Local LLMs
+## Phase 5: Local LLM Support (Future Enhancement)
 
 **Note:** This phase will be implemented after the first version is complete.
 
@@ -445,7 +357,6 @@ else:
 - Support local LLM providers (Ollama, Crok)
 - Remove dependency on OpenAI API keys
 - Enable deployment to Streamlit Cloud without API credentials
-- Remove Docker requirement (services can run locally or use managed services)
 
 **Planned Changes:**
 - Create abstraction layer for LLM providers (OpenAI, Ollama, Crok)
@@ -487,10 +398,10 @@ else:
 - `orchestrator/agent.py` (add guardrails support, parallel execution)
 - `cypher_agent/agent.py` (add guardrails support)
 - `orchestrator/tools.py` (implement Cypher agent call, parallel execution)
-- `monitoring/agent_logging.py` (async logging)
+- `monitoring/agent_logging.py` (async logging - DONE)
 - `mongodb_agent/config.py` (reduce max_tool_calls, optimize instructions)
-- `config/instructions.py` (improve MongoDB agent instructions)
-- `streamlit_app.py` (optimize get_output)
+- `config/instructions.py` (improve all agent instructions with examples, constraints, safety rules)
+- `streamlit_app.py` (optimize get_output - DONE)
 - `cli.py` (add guardrails flags, add evaluation commands)
 - `evals/evaluate.py` (extend for Cypher)
 - `README.md` (update documentation)
@@ -499,13 +410,22 @@ else:
 
 ## Implementation Order
 
-1. **Phase 0**: Fix MongoDB Agent Tool Call Limit (URGENT - blocking issue, do this first!)
-2. **Phase 1**: Performance Optimization (address execution speed issues)
-3. **Phase 2**: Cypher Query Agent (core functionality)
-4. **Phase 3**: Evaluation Framework (quality assurance)
-5. **Phase 4**: Integration and Testing (polish and validation)
-6. **Phase 5**: Guardrails Implementation (safety and quality controls)
-7. **Phase 6**: Local LLM Support (future enhancement)
+1. **Phase 0**: Instruction Improvements (can be done in parallel with Phase 1)
+2. **Phase 1**: Cypher Query Agent Implementation (core functionality)
+3. **Phase 2**: Evaluation Framework (quality assurance)
+4. **Phase 3**: Integration and Testing (polish and validation)
+5. **Phase 4**: Guardrails Implementation (safety and quality controls)
+6. **Phase 5**: Local LLM Support (future enhancement)
+
+---
+
+## Key Design Decisions
+
+1. **Schema Injection**: Schema will be retrieved on agent initialization and injected into instructions dynamically
+2. **Query Validation**: Two-stage validation - syntax check before execution, then execution with error handling
+3. **Error Handling**: Cypher agent should return structured errors, not raise exceptions (similar to MongoDB agent limit handling)
+4. **Instruction Format**: Follow reference project pattern - explicit constraints, concrete examples, domain-specific rules
+5. **Result Format**: Cypher agent results should match MongoDB agent format for consistency in orchestrator
 
 ---
 
@@ -515,12 +435,13 @@ else:
 - Streamlit UI should work with both MongoDB and Cypher agents
 - Cypher agent should handle query errors gracefully
 - Evaluation should be consistent across all agents
+- Schema injection must be dynamic (refresh on initialization, cache for performance)
+- Query validation is critical for safety (prevent write operations)
+- Instructions should be comprehensive but not overly verbose (balance detail with clarity)
 - Database should be initialized on first use (PostgreSQL via docker-compose)
 - Cost tracking uses `genai-prices` library for accurate pricing (OpenAI only in v1)
 - Local development: Users run `docker-compose up` locally, no API keys pushed to Streamlit Cloud
 - Future v2: Local LLM support will enable cloud deployment without API credentials
-- Guardrails implementation is included as Phase 7 with full integration into all agents
-- **Performance**: Current implementation has performance bottlenecks in sequential agent execution - see Phase 8 and `PERFORMANCE_OPTIMIZATION_ISSUE.md` for optimization strategies
 
 ---
 
@@ -557,7 +478,6 @@ postgres:
 4. Future: With local LLMs, can deploy to Streamlit Cloud without credentials
 
 ---
-
 
 ## Related Documentation
 
