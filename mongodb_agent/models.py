@@ -66,15 +66,6 @@ class SearchAnswer(BaseModel):
     )
 
 
-class SearchAgentResult(BaseModel):
-    """Result from MongoDB search agent query"""
-
-    answer: SearchAnswer = Field(..., description="The answer from the agent")
-    tool_calls: list[dict] = Field(
-        ..., description="List of tool calls made during the query"
-    )
-
-
 class TokenUsage(BaseModel):
     """Token usage information from LLM API calls"""
 
@@ -85,6 +76,18 @@ class TokenUsage(BaseModel):
         ..., ge=MIN_TOKEN_COUNT, description="Number of output tokens used"
     )
     total_tokens: int = Field(..., ge=MIN_TOKEN_COUNT, description="Total tokens used")
+
+
+class SearchAgentResult(BaseModel):
+    """Result from MongoDB search agent query"""
+
+    answer: SearchAnswer = Field(..., description="The answer from the agent")
+    tool_calls: list[dict] = Field(
+        ..., description="List of tool calls made during the query"
+    )
+    token_usage: TokenUsage = Field(
+        ..., description="Token usage information from the agent"
+    )
 
 
 class JudgeEvaluation(BaseModel):
