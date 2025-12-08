@@ -17,17 +17,21 @@ This plan covers the remaining features to be implemented for the user behavior 
 - ✅ Performance: Async database logging
 - ✅ Performance: Optimize `get_output()` call in streamlit_app.py
 - ✅ Performance: Parallel agent execution (`call_both_agents_parallel`)
+- ✅ Phase 0: Instruction Improvements - MongoDB, Cypher, and Orchestrator agent instructions enhanced
 
 **Status Update:**
-- Phase 0 (MongoDB Agent Limit Fix) is **COMPLETE** - all fixes implemented and working
-- Phase 1 (Performance Optimization) is **MOSTLY COMPLETE** - async logging and parallel execution done
+- Phase 0 (Instruction Improvements) is **COMPLETE** - all instruction enhancements implemented
+  - ✅ Phase 0.1: MongoDB Agent instruction enhancements (schema, examples, safety, validation)
+  - ✅ Phase 0.2: Cypher Agent instruction enhancements (schema injection placeholder, examples, safety, validation)
+  - ✅ Phase 0.3: Orchestrator Agent instruction enhancements (result handling, constraints, error examples)
 
 **Still To Do:**
-1. **Instruction Improvements**: Enhance agent instructions based on reference project analysis
-2. **Cypher Query Agent**: Full implementation with proper instructions
-3. **Evaluation Framework**: For Cypher Query Agent
-4. **Guardrails**: Safety and quality controls for agents
-5. **Local LLM Support**: Future enhancement for cloud deployment
+1. **Cypher Query Agent**: Full implementation with proper instructions (Phase 1)
+2. **Evaluation Framework**: For Cypher Query Agent (Phase 2)
+3. **Integration and Testing**: Polish and validation (Phase 3)
+4. **Guardrails**: Safety and quality controls for agents (Phase 4)
+5. **Local LLM Support**: Future enhancement for cloud deployment (Phase 5)
+6. **Structured Routing Log**: Add dedicated routing_log field to OrchestratorAnswer model (Phase 6)
 
 ---
 
@@ -379,6 +383,134 @@ This plan covers the remaining features to be implemented for the user behavior 
 
 ---
 
+## Phase 6: Structured Routing Log Enhancement
+
+### Overview
+
+Currently, the routing log is appended as plain text JSON to the answer text, making it difficult to parse, query, and display. This enhancement adds a dedicated structured `routing_log` field to the `OrchestratorAnswer` model.
+
+### Current State
+
+**Problem:**
+- Routing log is mixed into the `answer` string as appended text
+- Hard to extract, parse, or query routing decisions
+- Cannot easily display routing log separately in UI
+- Difficult to validate structure
+- Cannot query database by route type for analytics
+
+**Current Implementation:**
+- Instructions tell LLM to append routing log as JSON text to answer
+- Saved in PostgreSQL `assistant_answer` field (mixed with answer text)
+- No structured parsing or display
+
+### 6.1 Add RoutingLog Model
+
+**File:** `orchestrator/models.py`
+
+**Changes:**
+- Create new `RoutingLog` Pydantic model with structured fields:
+  ```python
+  class RoutingLog(BaseModel):
+      route: str  # "RAG" | "CYPHER" | "BOTH"
+      queries: dict[str, str]  # {"rag": "...", "cypher": "..."}
+      tags: list[str] | None
+      tool_called: str
+      reason: str
+      notes: str | None  # For error/fallback notes
+  ```
+- Add `routing_log: RoutingLog` field to `OrchestratorAnswer` model
+- Make it optional initially for backward compatibility: `routing_log: RoutingLog | None = None`
+
+### 6.2 Update Instructions
+
+**File:** `config/instructions.py`
+
+**Changes:**
+- Update `InstructionType.ORCHESTRATOR_AGENT` instructions
+- Change from: "append routing log as JSON text to answer"
+- Change to: "include `routing_log` field in your JSON response with the following structure..."
+- Provide clear schema for the routing_log field
+- Keep backward compatibility note: "If you cannot provide routing_log, append it to answer text as fallback"
+
+### 6.3 Update Stream Handler
+
+**File:** `stream_handler.py`
+
+**Changes:**
+- Add `routing_log_container` parameter to `OrchestratorAnswerHandler.__init__()`
+- Add `current_routing_log: dict | None` state tracking
+- Implement `on_field_end()` handler for `routing_log` field
+- Parse and display routing log in UI as it streams in
+- Handle nested object parsing for routing_log structure
+
+### 6.4 Update Streamlit UI
+
+**File:** `streamlit_app.py`
+
+**Changes:**
+- Add new sidebar container for routing log display
+- Show routing log fields: route, queries, tags, reason, notes
+- Format routing log nicely (e.g., collapsible section or table)
+- Update `run_agent_stream()` to pass routing_log_container to handler
+- Update `OrchestratorAnswer` construction to include routing_log field
+
+### 6.5 Database Enhancement (Optional)
+
+**File:** `monitoring/db.py`
+
+**Changes:**
+- Optionally add `routing_route` column to `LLMLog` table for easier querying
+- Migration script to add column
+- Update logging to extract and save routing_route separately
+- Or: Extract routing_log from `raw_json` more easily (already structured)
+
+**Benefits:**
+- Query logs by route type: `SELECT * FROM llm_logs WHERE routing_route = 'BOTH'`
+- Analytics: Count routes, analyze routing patterns
+- Debugging: Filter by routing decisions
+
+### 6.6 Update Tests
+
+**Files:** `tests/orchestrator/test_agent.py`, etc.
+
+**Changes:**
+- Update tests to include routing_log field in expected output
+- Test routing_log parsing and validation
+- Test backward compatibility (when routing_log is None)
+- Test UI display of routing_log
+
+### 6.7 Benefits
+
+1. **Structured Data**: Easy to parse, validate, and query
+2. **Separation of Concerns**: Answer text is clean, routing log is separate
+3. **Analytics**: Query database by route type, analyze routing patterns
+4. **Debugging**: Easier to see routing decisions in UI and logs
+5. **Validation**: Pydantic validates structure automatically
+6. **UI Enhancement**: Can display routing log in dedicated sidebar section
+
+### 6.8 Migration Strategy
+
+1. Make `routing_log` optional initially (`routing_log: RoutingLog | None = None`)
+2. Update instructions to prefer structured field, but allow text fallback
+3. Update stream handler to handle both formats (structured field or parse from text)
+4. Gradually migrate to structured format
+5. Once stable, make routing_log required and remove text fallback
+
+### Files to Modify
+
+**New Files:**
+- None (adds to existing models)
+
+**Modified Files:**
+- `orchestrator/models.py` - Add RoutingLog model and field
+- `config/instructions.py` - Update instructions to use structured field
+- `stream_handler.py` - Add routing_log parsing
+- `streamlit_app.py` - Add UI display for routing log
+- `monitoring/db.py` - (Optional) Add routing_route column
+- `tests/orchestrator/test_agent.py` - Update tests
+
+---
+
 ## File Structure Summary
 
 **New Files:**
@@ -410,12 +542,13 @@ This plan covers the remaining features to be implemented for the user behavior 
 
 ## Implementation Order
 
-1. **Phase 0**: Instruction Improvements (can be done in parallel with Phase 1)
+1. ✅ **Phase 0**: Instruction Improvements - **COMPLETE**
 2. **Phase 1**: Cypher Query Agent Implementation (core functionality)
 3. **Phase 2**: Evaluation Framework (quality assurance)
 4. **Phase 3**: Integration and Testing (polish and validation)
 5. **Phase 4**: Guardrails Implementation (safety and quality controls)
 6. **Phase 5**: Local LLM Support (future enhancement)
+7. **Phase 6**: Structured Routing Log Enhancement (future enhancement)
 
 ---
 
