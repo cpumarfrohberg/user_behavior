@@ -15,7 +15,7 @@ This system combines **document-based search** (MongoDB) and **graph-based analy
 
 ### Multi-Agent System
 - **Orchestrator Agent**: Routes questions to appropriate sub-agents and synthesizes results
-- **MongoDB/RAG Agent**: Semantic search over StackExchange documents using vector/text search
+- **MongoDB/RAG Agent**: Text search over StackExchange documents using MongoDB text search
 - **Cypher Query Agent**: Graph traversal and pattern detection in Neo4j knowledge graph
 
 ### Features
@@ -27,8 +27,8 @@ This system combines **document-based search** (MongoDB) and **graph-based analy
 - **Evaluation Framework**: Automated evaluation with judge models
 
 ### Interfaces
-- **CLI**: Command-line interface for queries and evaluation
-- **Streamlit UI**: Interactive web interface with streaming responses
+- **Streamlit UI**: Interactive web interface with streaming responses (primary interface)
+- **CLI**: Command-line interface for testing and evaluation (may be removed in published version)
 - **Monitoring Dashboard**: Cost tracking and agent performance metrics
 
 ## Prerequisites
@@ -87,19 +87,12 @@ LOG_LEVEL=INFO
 
 ### 4. Run the Application
 
-**Streamlit UI (Recommended):**
+**Streamlit UI:**
 ```bash
 streamlit run streamlit_app.py
 ```
 
-**CLI:**
-```bash
-# Ask questions via CLI
-uv run python cli.py ask "What are common user behavior patterns?"
-
-# With verbose output
-uv run python cli.py ask "How do users react to confusing interfaces?" --verbose
-```
+Then open `http://localhost:8501` in your browser.
 
 ## Agent System
 
@@ -107,7 +100,7 @@ uv run python cli.py ask "How do users react to confusing interfaces?" --verbose
 
 The orchestrator intelligently routes questions to the appropriate agent(s):
 
-- **RAG Agent Only**: For document retrieval, examples, case studies, semantic searches
+- **RAG Agent Only**: For document retrieval, examples, case studies, text searches
 - **Cypher Agent Only**: For graph traversal, relationships, correlations, pattern detection
 - **Both Agents**: When both document evidence and graph analysis are needed (runs in parallel)
 
@@ -118,10 +111,9 @@ The orchestrator intelligently routes questions to the appropriate agent(s):
 
 ### MongoDB/RAG Agent
 
-Performs semantic search over StackExchange documents:
+Performs text search over StackExchange documents:
 
-- **Vector Search**: Semantic similarity using SentenceTransformers (default)
-- **Text Search**: Keyword-based search using MinSearch (faster)
+- **Text Search**: MongoDB text search for keyword-based retrieval
 - **Tag Filtering**: Optional tag-based filtering for focused results
 - **Tool Call Limit**: Maximum 5 searches per query (prevents excessive API calls)
 
@@ -144,7 +136,9 @@ Executes graph queries on Neo4j knowledge graph:
 - Query validation (forbidden keywords, syntax checks)
 - Error handling for syntax errors and connection issues
 
-## CLI Usage
+## CLI Usage (Testing Only)
+
+> **Note**: The CLI is primarily for testing and evaluation purposes. It may be removed in the published version. Use the Streamlit UI for production queries.
 
 ### Ask Questions
 
@@ -154,9 +148,6 @@ uv run python cli.py ask "How do users behave when confused?"
 
 # Verbose output (shows tool calls, token usage)
 uv run python cli.py ask "What causes user abandonment?" --verbose
-
-# Use text search instead of vector search
-uv run python cli.py ask "Find discussions about frustration" --search-type minsearch
 ```
 
 ### Evaluation
@@ -211,20 +202,6 @@ streamlit run streamlit_app.py
 
 Then open `http://localhost:8501` in your browser.
 
-## Search Types
-
-### Vector Search (Default)
-- **Technology**: SentenceTransformers
-- **Best For**: Natural language queries, semantic similarity
-- **Advantages**: Handles synonyms, paraphrasing, context
-- **Trade-off**: Slower but more accurate
-
-### Text Search
-- **Technology**: MinSearch
-- **Best For**: Exact matches, technical terms, performance-critical scenarios
-- **Advantages**: Faster execution
-- **Trade-off**: Less semantic understanding
-
 ## Monitoring & Cost Tracking
 
 The system tracks agent performance and costs:
@@ -268,8 +245,8 @@ user_behavior/
 ├── stream_stackexchange/  # StackExchange data collection
 ├── neo4j_etl/             # ETL pipeline for Neo4j
 ├── tests/                 # Test suite
-├── streamlit_app.py       # Streamlit UI
-└── cli.py                 # CLI interface
+├── streamlit_app.py       # Streamlit UI (primary interface)
+└── cli.py                 # CLI interface (testing only, may be removed)
 ```
 
 ## Implementation Status
