@@ -18,11 +18,13 @@ This plan covers the remaining features to be implemented for the user behavior 
 - ✅ Performance: Optimize `get_output()` call in streamlit_app.py
 - ✅ Performance: Parallel agent execution (`call_both_agents_parallel`)
 - ✅ Phase 0: Instruction Improvements - Streamlined and optimized all agent instructions
+- ✅ Orchestrator Tools Refactoring - DRY refactoring with AgentManager pattern and comprehensive tests
 
 **Status Update:**
 - Phase 0 (Instruction Improvements) is **COMPLETE** - all instructions refactored for efficiency
 - Phase 0 (MongoDB Agent Limit Fix) is **COMPLETE** - all fixes implemented and working
 - Phase 1 (Performance Optimization) is **MOSTLY COMPLETE** - async logging and parallel execution done
+- Orchestrator Tools Refactoring is **COMPLETE** - AgentManager pattern implemented, tests added
 
 **Still To Do:**
 1. **Cypher Query Agent**: Full implementation with proper instructions
@@ -30,6 +32,39 @@ This plan covers the remaining features to be implemented for the user behavior 
 3. **Guardrails**: Safety and quality controls for agents
 4. **Local LLM Support**: Future enhancement for cloud deployment
 5. **Structured Routing Log**: Add dedicated routing_log field to OrchestratorAnswer model
+
+---
+
+## Phase 0.5: Orchestrator Tools Refactoring ✅ COMPLETE
+
+**Status:** ✅ **COMPLETE** - Refactored orchestrator tools to eliminate DRY violations
+
+**Summary:**
+Refactored `orchestrator/tools.py` to use a generic `AgentManager` pattern that eliminates code duplication between MongoDB and Cypher agent management. Implemented comprehensive unit tests for the refactored code.
+
+**Key Improvements:**
+- ✅ Created generic `AgentManager[AgentT, ConfigT, ResultT]` class for agent lifecycle management
+- ✅ Eliminated duplicate code between `call_mongodb_agent()` and `call_cypher_query_agent()` functions
+- ✅ Implemented lazy initialization with config change detection
+- ✅ Added comprehensive unit tests (`tests/orchestrator/test_tools.py`)
+- ✅ Updated `conftest.py` to use refactored API
+- ✅ Fixed import sorting in `cypher_agent/config.py`
+
+**Files Modified:**
+- `orchestrator/tools.py` - Refactored with AgentManager pattern
+- `tests/orchestrator/test_tools.py` - New comprehensive test suite (4 tests)
+- `tests/orchestrator/conftest.py` - Updated to use `mongodb_manager.initialize()`
+- `cypher_agent/config.py` - Fixed import sorting (ruff compliance)
+
+**Implementation Details:**
+- `AgentManager` provides generic agent initialization, lifecycle management, and result formatting
+- Supports lazy initialization with automatic re-initialization on config changes
+- Maintains backward compatibility with existing `call_mongodb_agent()` and `call_cypher_query_agent()` functions
+- All tests pass and pre-commit hooks verified
+
+**Commits:**
+- `3ec5561` - refactor tools.py in orchestrator (avoid DRY); implement tests for refactored version of tools.py
+- `c55d79d` - fix: update conftest.py to use refactored mongodb_manager API
 
 ---
 
@@ -455,7 +490,7 @@ Currently, the routing log is appended as plain text JSON to the answer text, ma
 - `mongodb_agent/agent.py` (add guardrails support)
 - `orchestrator/agent.py` (add guardrails support, parallel execution)
 - `cypher_agent/agent.py` (add guardrails support)
-- `orchestrator/tools.py` (implement Cypher agent call, parallel execution)
+- `orchestrator/tools.py` (✅ refactored with AgentManager pattern, implement Cypher agent call, parallel execution)
 - `monitoring/agent_logging.py` (async logging - DONE)
 - `mongodb_agent/config.py` (reduce max_tool_calls, optimize instructions)
 - `config/instructions.py` (improve all agent instructions with examples, constraints, safety rules)
@@ -463,18 +498,22 @@ Currently, the routing log is appended as plain text JSON to the answer text, ma
 - `cli.py` (add guardrails flags, add evaluation commands)
 - `evals/evaluate.py` (extend for Cypher)
 - `README.md` (update documentation)
+- `tests/orchestrator/test_tools.py` (✅ new comprehensive test suite)
+- `tests/orchestrator/conftest.py` (✅ updated for refactored API)
+- `cypher_agent/config.py` (✅ fixed import sorting)
 
 ---
 
 ## Implementation Order
 
 1. ✅ **Phase 0**: Instruction Improvements - **COMPLETE**
-2. **Phase 1**: Cypher Query Agent Implementation (core functionality) - **NEXT**
-3. **Phase 2**: Evaluation Framework (quality assurance)
-4. **Phase 3**: Integration and Testing (polish and validation)
-5. **Phase 4**: Guardrails Implementation (safety and quality controls)
-6. **Phase 5**: Local LLM Support (future enhancement)
-7. **Phase 6**: Structured Routing Log Enhancement
+2. ✅ **Phase 0.5**: Orchestrator Tools Refactoring - **COMPLETE**
+3. **Phase 1**: Cypher Query Agent Implementation (core functionality) - **NEXT**
+4. **Phase 2**: Evaluation Framework (quality assurance)
+5. **Phase 3**: Integration and Testing (polish and validation)
+6. **Phase 4**: Guardrails Implementation (safety and quality controls)
+7. **Phase 5**: Local LLM Support (future enhancement)
+8. **Phase 6**: Structured Routing Log Enhancement
 
 ---
 
