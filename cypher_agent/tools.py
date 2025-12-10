@@ -7,6 +7,7 @@ from typing import Any
 
 import neo4j
 from neo4j import GraphDatabase
+from neo4j.exceptions import CypherSyntaxError, ServiceUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -333,7 +334,7 @@ def execute_cypher_query(query: str) -> dict[str, Any]:
                 "error": None,
             }
 
-    except neo4j.exceptions.SyntaxError as e:
+    except CypherSyntaxError as e:
         error_msg = f"Cypher syntax error: {str(e)}"
         logger.error(error_msg)
         return {
@@ -341,7 +342,7 @@ def execute_cypher_query(query: str) -> dict[str, Any]:
             "query": query,
             "error": error_msg,
         }
-    except neo4j.exceptions.ServiceUnavailable as e:
+    except ServiceUnavailable as e:
         error_msg = f"Neo4j service unavailable: {str(e)}"
         logger.error(error_msg)
         return {
