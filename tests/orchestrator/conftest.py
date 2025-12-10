@@ -6,7 +6,7 @@ import pytest_asyncio
 from mongodb_agent.config import MongoDBConfig
 from orchestrator.agent import OrchestratorAgent
 from orchestrator.config import OrchestratorConfig
-from orchestrator.tools import initialize_mongodb_agent
+from orchestrator.tools import mongodb_manager
 
 
 @pytest.fixture
@@ -29,7 +29,7 @@ def orchestrator_config():
 async def initialized_orchestrator(mongodb_config, orchestrator_config):
     """OrchestratorAgent initialized with real MongoDB data"""
     # Initialize MongoDB agent first (required by orchestrator)
-    initialize_mongodb_agent(mongodb_config)
+    mongodb_manager.initialize(mongodb_config)
 
     # Initialize orchestrator
     orchestrator = OrchestratorAgent(orchestrator_config)
