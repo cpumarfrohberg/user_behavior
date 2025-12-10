@@ -2,15 +2,22 @@
 
 import asyncio
 import logging
-from typing import Any
+from typing import Any, Callable, Generic, TypeVar
 
+from cypher_agent.agent import CypherQueryAgent
+from cypher_agent.config import CypherAgentConfig
 from mongodb_agent.agent import MongoDBSearchAgent
 from mongodb_agent.config import MongoDBConfig
 from mongodb_agent.tools import ToolCallLimitExceeded
 
 logger = logging.getLogger(__name__)
 
+# Type variables for generic agent management
+AgentT = TypeVar("AgentT")
+ConfigT = TypeVar("ConfigT")
+ResultT = TypeVar("ResultT")
 
+# Constants
 PLACEHOLDER_CONFIDENCE = 0.0
 ERROR_CONFIDENCE = 0.0
 MIN_CONFIDENCE = 0.0
@@ -26,54 +33,91 @@ MAX_CONFIDENCE_ON_LIMIT = (
 CONFIDENCE_PER_SEARCH = 0.05  # Additional confidence per search completed
 MIN_SEARCHES_FOR_BASE = 1  # Minimum searches to get base confidence
 
-# Global instances to avoid re-initialization
-_mongodb_agent_instance: MongoDBSearchAgent | None = None
-_mongodb_agent_config: MongoDBConfig | None = None
+
+class AgentManager(Generic[AgentT, ConfigT, ResultT]):
+    """Generic agent manager for lazy initialization and lifecycle management"""
+
+    def __init__(
+        self,
+        agent_name: str,
+        agent_class: type[AgentT],
+        config_class: type[ConfigT],
+        create_agent: Callable[[ConfigT], AgentT],
+        format_result: Callable[[ResultT], dict[str, Any]],
+        get_default_config: Callable[[], ConfigT] | None = None,
+    ):
+        self.agent_name = agent_name
+        self.agent_class = agent_class
+        self.config_class = config_class
+        self.create_agent = create_agent
+        self.format_result = format_result
+        self.get_default_config = get_default_config or (lambda: config_class())
+
+        self._instance: AgentT | None = None
+        self._config: ConfigT | None = None
+
+    def _should_reinitialize(self, new_config: ConfigT) -> bool:
+        """Check if agent needs re-initialization due to config changes"""
+        if self._config is None:
+            return False
+        return self._config != new_config
+
+    def initialize(self, config: ConfigT | None = None) -> None:
+        """Initialize agent instance with lazy loading and config change detection"""
+        if config is None:
+            config = self.get_default_config()
+
+        if self._instance is None:
+            logger.info(f"Initializing {self.agent_name} for orchestrator...")
+            self._instance = self.create_agent(config)
+            self._config = config
+            logger.info(f"{self.agent_name} initialized successfully")
+        elif self._should_reinitialize(config):
+            logger.info(f"Re-initializing {self.agent_name} due to config changes...")
+            self._instance = self.create_agent(config)
+            self._config = config
+            logger.info(f"{self.agent_name} re-initialized successfully")
+
+    def ensure_initialized(self) -> None:
+        """Ensure agent is initialized, creating it if needed"""
+        if self._instance is None:
+            self.initialize()
+        if self._instance is None:
+            raise RuntimeError(f"{self.agent_name} not initialized")
+
+    async def call(self, question: str, **kwargs: Any) -> dict[str, Any]:
+        """Call agent with question and return formatted result"""
+        self.ensure_initialized()
+
+        logger.info(
+            f"Calling {self.agent_name} with question: {question[:QUESTION_LOG_TRUNCATE_LENGTH]}..."
+        )
+
+        try:
+            result = await self._instance.query(question, **kwargs)
+            return self.format_result(result)
+        except Exception as e:
+            logger.error(f"Error calling {self.agent_name}: {e}")
+            raise RuntimeError(f"{self.agent_name} failed: {str(e)}") from e
 
 
-def _should_reinitialize_agent(
-    current_config: MongoDBConfig | None, new_config: MongoDBConfig
-) -> bool:
-    if current_config is None:
-        return False
-    return current_config != new_config
-
-
+# Agent-specific factories and formatters
 def _create_mongodb_agent(config: MongoDBConfig) -> MongoDBSearchAgent:
+    """Create and initialize MongoDB agent instance"""
     agent = MongoDBSearchAgent(config)
     agent.initialize()
     return agent
 
 
-def initialize_mongodb_agent(config: MongoDBConfig | None = None) -> None:
-    """Initialize MongoDB Agent instance for orchestrator to use"""
-    global _mongodb_agent_instance, _mongodb_agent_config
-
-    if config is None:
-        config = MongoDBConfig()
-
-    if _mongodb_agent_instance is None:
-        logger.info("Initializing MongoDB Search Agent for orchestrator...")
-        _mongodb_agent_instance = _create_mongodb_agent(config)
-        _mongodb_agent_config = config
-        logger.info("MongoDB Search Agent initialized successfully")
-    elif _should_reinitialize_agent(_mongodb_agent_config, config):
-        logger.info("Re-initializing MongoDB Search Agent due to config changes...")
-        _mongodb_agent_instance = _create_mongodb_agent(config)
-        _mongodb_agent_config = config
-        logger.info("MongoDB Search Agent re-initialized successfully")
-
-
-def _ensure_mongodb_agent_initialized() -> None:
-    """Ensure MongoDB agent is initialized, creating it if needed."""
-    global _mongodb_agent_instance
-    if _mongodb_agent_instance is None:
-        initialize_mongodb_agent()
-    if _mongodb_agent_instance is None:
-        raise RuntimeError("MongoDB Search Agent not initialized")
+def _create_cypher_agent(config: CypherAgentConfig) -> CypherQueryAgent:
+    """Create and initialize Cypher agent instance"""
+    agent = CypherQueryAgent(config)
+    agent.initialize()
+    return agent
 
 
 def _format_mongodb_result(result: Any) -> dict[str, Any]:
+    """Format MongoDB agent result to orchestrator dict format"""
     return {
         "answer": result.answer.answer,
         "confidence": result.answer.confidence,
@@ -82,6 +126,36 @@ def _format_mongodb_result(result: Any) -> dict[str, Any]:
         "tool_calls": len(result.tool_calls),
         "agent": "mongodb_agent",
     }
+
+
+def _format_cypher_result(result: Any) -> dict[str, Any]:
+    """Format Cypher agent result to orchestrator dict format"""
+    return {
+        "answer": result.answer.answer,
+        "confidence": result.answer.confidence,
+        "sources_used": result.answer.sources_used,
+        "reasoning": result.answer.reasoning,
+        "tool_calls": len(result.tool_calls),
+        "agent": "cypher_query_agent",
+    }
+
+
+# Initialize agent managers
+mongodb_manager = AgentManager(
+    agent_name="MongoDB Search Agent",
+    agent_class=MongoDBSearchAgent,
+    config_class=MongoDBConfig,
+    create_agent=_create_mongodb_agent,
+    format_result=_format_mongodb_result,
+)
+
+cypher_manager = AgentManager(
+    agent_name="Cypher Query Agent",
+    agent_class=CypherQueryAgent,
+    config_class=CypherAgentConfig,
+    create_agent=_create_cypher_agent,
+    format_result=_format_cypher_result,
+)
 
 
 def _calculate_confidence_from_searches(
@@ -115,18 +189,19 @@ def _calculate_confidence_from_searches(
 
 
 async def call_mongodb_agent(question: str) -> dict[str, Any]:
-    global _mongodb_agent_instance
+    """
+    Call MongoDB Search Agent to answer a question.
 
-    _ensure_mongodb_agent_initialized()
+    Args:
+        question: User question to answer
 
-    logger.info(
-        f"Calling MongoDB Search Agent with question: {question[:QUESTION_LOG_TRUNCATE_LENGTH]}..."
-    )
-
+    Returns:
+        Dictionary with answer, confidence, sources_used, reasoning, tool_calls, and agent name
+    """
     try:
-        result = await _mongodb_agent_instance.query(question)
-        return _format_mongodb_result(result)
+        return await mongodb_manager.call(question)
     except ToolCallLimitExceeded as e:
+        # MongoDB-specific handling for tool call limits
         # Agent hit limit - this is a VALID completion, not a failure
         # The agent has made its maximum searches and should have results
         logger.info(
@@ -158,9 +233,6 @@ async def call_mongodb_agent(question: str) -> dict[str, Any]:
             "agent": "mongodb_agent",
             "tool_calls": e.current_count,
         }
-    except Exception as e:
-        logger.error(f"Error calling MongoDB Search Agent: {e}")
-        raise RuntimeError(f"MongoDB Search Agent failed: {str(e)}") from e
 
 
 # Backward compatibility alias
@@ -177,18 +249,9 @@ async def call_cypher_query_agent(question: str) -> dict[str, Any]:
         question: User question to answer
 
     Returns:
-        Dictionary with answer, confidence, and reasoning
+        Dictionary with answer, confidence, sources_used, reasoning, tool_calls, and agent name
     """
-    # TODO: Implement Cypher Query Agent
-    # For now, return a placeholder response
-    logger.warning("Cypher Query Agent not yet implemented - returning placeholder")
-
-    return {
-        "answer": "Cypher Query Agent is not yet implemented. This would analyze graph relationships and patterns in Neo4j.",
-        "confidence": PLACEHOLDER_CONFIDENCE,
-        "reasoning": "Cypher Query Agent placeholder - not implemented",
-        "agent": "cypher_query_agent",
-    }
+    return await cypher_manager.call(question)
 
 
 def _handle_agent_error(error: Exception, agent_name: str) -> dict[str, Any]:
@@ -241,6 +304,7 @@ def _calculate_combined_confidence(
 def _format_combined_answer(
     mongodb_result: dict[str, Any], cypher_result: dict[str, Any]
 ) -> str:
+    """Format combined answer from both agents"""
     mongodb_answer = mongodb_result.get("answer", "")
     cypher_answer = cypher_result.get("answer", "")
     return f"{mongodb_answer}\n\nGraph Analysis: {cypher_answer}".strip()
@@ -249,6 +313,7 @@ def _format_combined_answer(
 def _format_combined_reasoning(
     mongodb_result: dict[str, Any], cypher_result: dict[str, Any]
 ) -> str:
+    """Format combined reasoning from both agents"""
     mongodb_reasoning = mongodb_result.get("reasoning", "")
     cypher_reasoning = cypher_result.get("reasoning", "")
     return f"MongoDB Agent: {mongodb_reasoning}\nCypher Query Agent: {cypher_reasoning}"
