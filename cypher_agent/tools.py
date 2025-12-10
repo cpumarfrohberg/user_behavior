@@ -3,16 +3,90 @@
 
 import logging
 import re
+import threading
 from typing import Any
 
 import neo4j
 from neo4j import GraphDatabase
 from neo4j.exceptions import CypherSyntaxError, ServiceUnavailable
 
+from mongodb_agent.tools import ToolCallLimitExceeded
+
 logger = logging.getLogger(__name__)
+
+# Tool call limit constants
+DEFAULT_TOOL_CALL_COUNT = 0
+DEFAULT_MAX_TOOL_CALLS = 5
 
 # Global Neo4j driver instance
 _neo4j_driver: neo4j.Driver | None = None
+
+# Global state for tool call counting
+_tool_call_count = DEFAULT_TOOL_CALL_COUNT
+_initial_max_tool_calls = DEFAULT_MAX_TOOL_CALLS
+_extended_max_tool_calls = DEFAULT_MAX_TOOL_CALLS
+_current_max_tool_calls = DEFAULT_MAX_TOOL_CALLS
+_enable_adaptive_limit = False
+_counter_lock = threading.Lock()
+
+
+def set_max_tool_calls(max_calls: int) -> None:
+    """Set the maximum number of tool calls allowed."""
+    global _initial_max_tool_calls, _current_max_tool_calls
+    with _counter_lock:
+        _initial_max_tool_calls = max_calls
+        _current_max_tool_calls = max_calls
+
+
+def set_adaptive_limit_config(
+    initial_limit: int, extended_limit: int, enabled: bool
+) -> None:
+    """Configure adaptive limit settings."""
+    global \
+        _initial_max_tool_calls, \
+        _extended_max_tool_calls, \
+        _current_max_tool_calls, \
+        _enable_adaptive_limit
+    with _counter_lock:
+        _initial_max_tool_calls = initial_limit
+        _extended_max_tool_calls = extended_limit
+        _current_max_tool_calls = initial_limit
+        _enable_adaptive_limit = enabled
+
+
+def reset_tool_call_count() -> None:
+    """Reset the tool call counter and limit (called at start of each query)."""
+    global _tool_call_count, _current_max_tool_calls
+    with _counter_lock:
+        _tool_call_count = DEFAULT_TOOL_CALL_COUNT
+        _current_max_tool_calls = _initial_max_tool_calls
+
+
+def get_tool_call_count() -> int:
+    """Get the current tool call count."""
+    global _tool_call_count
+    with _counter_lock:
+        return _tool_call_count
+
+
+def _check_and_increment_tool_call_count() -> int:
+    """Check limit before incrementing, raise exception if limit reached."""
+    global _tool_call_count, _current_max_tool_calls
+
+    with _counter_lock:
+        if _tool_call_count >= _current_max_tool_calls:
+            logger.warning(
+                f"Tool call limit reached: {_tool_call_count} >= {_current_max_tool_calls}. "
+                f"Blocking call before it starts."
+            )
+            raise ToolCallLimitExceeded(_tool_call_count, _current_max_tool_calls)
+
+        _tool_call_count += 1
+        logger.info(
+            f"✅ Tool call #{_tool_call_count} of {_current_max_tool_calls} allowed"
+        )
+        return _tool_call_count
+
 
 # Forbidden write operations
 FORBIDDEN_KEYWORDS = ["CREATE", "DELETE", "SET", "REMOVE", "MERGE"]
@@ -260,6 +334,9 @@ def execute_cypher_query(query: str) -> dict[str, Any]:
     Execute Cypher query on Neo4j and return results.
 
     ⚠️ IMPORTANT: This tool executes read-only queries only. Write operations are forbidden.
+    ⚠️ IMPORTANT LIMIT: You have a maximum of 5 tool calls per query. After 5 calls,
+    this tool will raise ToolCallLimitExceeded and you MUST stop and synthesize your answer.
+    Most questions can be answered with just 1-2 queries. Be decisive and stop early.
 
     Args:
         query: Cypher query string to execute
@@ -274,8 +351,24 @@ def execute_cypher_query(query: str) -> dict[str, Any]:
 
     Raises:
         RuntimeError: If Neo4j driver is not initialized or query validation fails
+        ToolCallLimitExceeded: If you have exceeded the maximum of 5 tool calls.
     """
+    global _tool_call_count, _current_max_tool_calls, _initial_max_tool_calls
+
     driver = get_neo4j_driver()
+
+    # Check for suspicious counter state (shouldn't happen, but safety check)
+    with _counter_lock:
+        if _tool_call_count > _current_max_tool_calls:
+            logger.warning(
+                f"Counter state suspicious: {_tool_call_count} > {_current_max_tool_calls}. "
+                f"This suggests counter wasn't reset between queries. Resetting now."
+            )
+            _tool_call_count = DEFAULT_TOOL_CALL_COUNT
+            _current_max_tool_calls = _initial_max_tool_calls
+
+    # Check and increment tool call count (raises exception if limit exceeded)
+    _check_and_increment_tool_call_count()
 
     # Validate query before execution
     is_valid, error_message = validate_cypher_query(query)

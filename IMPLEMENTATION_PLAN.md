@@ -33,6 +33,11 @@ This plan covers the remaining features to be implemented for the user behavior 
 4. **Local LLM Support**: Future enhancement for cloud deployment
 5. **Structured Routing Log**: Add dedicated routing_log field to OrchestratorAnswer model
 
+**Pending Optimizations:**
+1. **MongoDB Agent Early Stopping**: Improve agent logic to stop when sufficient results are found (currently continues even with 2+ relevant results)
+2. **Async Exception Handling**: Clean up async exception handling to avoid "unretrieved task exception" warnings
+3. **Streaming Chunk Capture**: Investigate why streaming shows 0 chunks (fallback works but streaming should capture chunks)
+
 ---
 
 ## Phase 0.5: Orchestrator Tools Refactoring ✅ COMPLETE
@@ -116,7 +121,23 @@ Refactored all three agent instruction sets (Orchestrator, MongoDB, Cypher) to r
 
 ---
 
-## Phase 1: Cypher Query Agent Implementation
+## Phase 1: Cypher Query Agent Implementation ⏳ PARTIALLY COMPLETE
+
+**Status:** ⏳ **PARTIALLY COMPLETE** - Core structure implemented, tool call limits partially done
+
+**Completed:**
+- ✅ Module structure created (agent, tools, models, config)
+- ✅ Neo4j schema retrieval implemented
+- ✅ Query execution and validation implemented
+- ✅ Agent class implemented with schema injection
+- ✅ Models defined (CypherAnswer, CypherAgentResult)
+- ✅ Orchestrator integration implemented
+- ✅ Instructions updated with schema injection
+- ✅ Tool call limits partially implemented (Steps 1-4 complete)
+
+**Remaining:**
+- ⏳ Tool call limits: Steps 5-7 (reset counter in agent, config support, tests)
+- ⏳ Full testing and validation
 
 ### 1.1 Create Cypher Query Agent Module Structure
 
@@ -207,7 +228,9 @@ Refactored all three agent instruction sets (Orchestrator, MongoDB, Cypher) to r
 
 ---
 
-## Phase 2: Evaluation Framework for Cypher Agent
+## Phase 2: Evaluation Framework for Cypher Agent ⏳ PENDING
+
+**Status:** ⏳ **PENDING** - Not yet started
 
 ### 2.1 Create Ground Truth for Cypher Queries
 
@@ -245,7 +268,9 @@ Refactored all three agent instruction sets (Orchestrator, MongoDB, Cypher) to r
 
 ---
 
-## Phase 3: Integration and Testing
+## Phase 3: Integration and Testing ⏳ PENDING
+
+**Status:** ⏳ **PENDING** - Not yet started
 
 ### 3.1 Update Dependencies
 
@@ -283,7 +308,9 @@ Refactored all three agent instruction sets (Orchestrator, MongoDB, Cypher) to r
 
 ---
 
-## Phase 4: Guardrails Implementation
+## Phase 4: Guardrails Implementation ⏳ PENDING
+
+**Status:** ⏳ **PENDING** - Not yet started
 
 ### 4.1 Create Guardrails Module Structure
 
@@ -314,7 +341,9 @@ Refactored all three agent instruction sets (Orchestrator, MongoDB, Cypher) to r
 
 ---
 
-## Phase 5: Local LLM Support (Future Enhancement)
+## Phase 5: Local LLM Support ⏳ PENDING (Future Enhancement)
+
+**Status:** ⏳ **PENDING** - Future enhancement, not yet started
 
 **Note:** This phase will be implemented after the first version is complete.
 
@@ -344,7 +373,9 @@ Refactored all three agent instruction sets (Orchestrator, MongoDB, Cypher) to r
 
 ---
 
-## Phase 6: Structured Routing Log Enhancement
+## Phase 6: Structured Routing Log Enhancement ⏳ PENDING
+
+**Status:** ⏳ **PENDING** - Not yet started
 
 ### Overview
 
@@ -524,6 +555,134 @@ Currently, the routing log is appended as plain text JSON to the answer text, ma
 3. **Error Handling**: Cypher agent should return structured errors, not raise exceptions (similar to MongoDB agent limit handling)
 4. **Instruction Format**: Follow reference project pattern - explicit constraints, concrete examples, domain-specific rules
 5. **Result Format**: Cypher agent results should match MongoDB agent format for consistency in orchestrator
+
+---
+
+## Pending Optimizations (Future Improvements)
+
+These optimizations were identified during testing and should be addressed in future iterations:
+
+### 1. MongoDB Agent Early Stopping Logic
+
+**Issue:**
+- Agent continues making searches even when it has sufficient results (2+ relevant results with score >= 2.0)
+- According to instructions: "After any search: If you have 2+ relevant results (score >= 2.0) OR 1 result with score >= 3.5 → STOP"
+- Observed behavior: Agent made 3 searches with 5 relevant results each (high_quality=True) but still attempted 4th and 5th calls
+
+**Impact:**
+- Unnecessary API calls and token usage
+- Slower response times
+- Tool call limit is hit unnecessarily
+
+**Files to Review:**
+- `mongodb_agent/agent.py` - Check early stopping logic in agent instructions
+- `config/instructions.py` - Verify early stopping rules are clear and being followed
+
+**Solution:**
+- Review and strengthen early stopping instructions
+- Consider adding explicit evaluation logic that forces STOP when criteria are met
+- Add validation in the agent to enforce early stopping
+
+### 2. Async Exception Handling Cleanup
+
+**Issue:**
+- `ToolCallLimitExceeded` exception shows as "Task exception was never retrieved" in logs
+- Exception is correctly caught and handled, but async task exception handling could be cleaner
+
+**Impact:**
+- Cluttered error logs
+- Potential confusion during debugging
+- Minor async resource leak (unretrieved exceptions)
+
+**Files to Review:**
+- `mongodb_agent/tools.py` - Exception handling in `search_mongodb()`
+- `orchestrator/tools.py` - How exceptions are propagated from agents
+- `streamlit_app.py` - Async exception handling in streaming context
+
+**Solution:**
+- Ensure all async tasks properly await exceptions
+- Use proper exception handling patterns for async contexts
+- Consider using `asyncio.create_task()` with proper exception handling
+
+### 3. Streaming Chunk Capture Investigation
+
+**Issue:**
+- Streaming shows "Received 0 text chunks" but fallback to `get_output()` works correctly
+- Streaming handler may not be capturing chunks properly during agent execution
+
+**Impact:**
+- Users don't see real-time streaming updates (though final result is correct)
+- Degraded user experience (no progressive answer display)
+
+**Files to Review:**
+- `stream_handler.py` - Streaming handler implementation
+- `streamlit_app.py` - How streaming is set up and handled
+- `orchestrator/agent.py` - How agent streaming is configured
+
+**Solution:**
+- Investigate why chunks aren't being captured during streaming
+- Verify streaming event handlers are properly connected
+- Test streaming with both single and parallel agent calls
+- Ensure streaming works for all agent types (MongoDB, Cypher, Orchestrator)
+
+### 4. Cypher Agent Sources Format Issue
+
+**Issue:**
+- Cypher agent is including tag names (e.g., 'surveys', 'research', 'conversion-rate') in `sources_used` field
+- Tag names are not valid sources - should be node IDs or question IDs
+- Example: `sources_used=['question_90676', 'surveys', 'research']` - mixing question IDs with tag names
+
+**Impact:**
+- Inconsistent source format (mixing IDs with tag names)
+- Confusing for users (tag names aren't actual sources)
+- Breaks expected format where sources should be node/question identifiers
+
+**Files to Review:**
+- `cypher_agent/agent.py` - How sources are extracted from Cypher query results
+- `cypher_agent/models.py` - CypherAnswer model definition for sources_used
+- `cypher_agent/tools.py` - How query results are formatted and returned
+
+**Solution:**
+- Ensure Cypher agent extracts actual node/question IDs from query results
+- Filter out tag names and other metadata from sources_used
+- Sources should be in format: `["node_123", "question_456"]` not `["surveys", "research"]`
+- Update source extraction logic to only include valid node/question identifiers
+
+### 5. Cypher Agent Tool Call Limits - Remaining Steps
+
+**Status:**
+- ✅ **Completed (Steps 1-4):**
+  - Step 1: Added `ToolCallLimitExceeded` exception import from `mongodb_agent.tools`
+  - Step 2: Added global counter state with thread-safe locking (`_tool_call_count`, `_counter_lock`, etc.)
+  - Step 3: Added counter management functions (`set_max_tool_calls`, `reset_tool_call_count`, `get_tool_call_count`, `_check_and_increment_tool_call_count`)
+  - Step 4: Added limit check in `execute_cypher_query()` function
+
+- ⏳ **Pending (Steps 5-7):**
+  - **Step 5:** Update agent to call `reset_tool_call_count()` at start of each query
+    - Import `reset_tool_call_count` from `cypher_agent.tools` in `cypher_agent/agent.py`
+    - Call `reset_tool_call_count()` at the start of the `query()` method (after `_reset_tool_calls()`)
+    - This ensures the tool call counter resets to 0 at the start of each new query
+
+  - **Step 6:** Update agent config to support `max_tool_calls` parameter
+    - Add `max_tool_calls` field to `CypherAgentConfig` in `cypher_agent/config.py`
+    - Call `set_max_tool_calls()` during agent initialization in `cypher_agent/agent.py`
+    - Allow configurable limit (default: 5, matching MongoDB agent)
+
+  - **Step 7:** Add tests for tool call limit functionality
+    - Test that `reset_tool_call_count()` resets counter to 0
+    - Test that `_check_and_increment_tool_call_count()` increments correctly
+    - Test that `ToolCallLimitExceeded` is raised when limit is exceeded
+    - Test that counter resets between queries
+    - Add tests to `tests/cypher_agent/test_tools.py` or create new test file
+
+**Files to Modify:**
+- `cypher_agent/agent.py` - Add `reset_tool_call_count()` call and `set_max_tool_calls()` during init
+- `cypher_agent/config.py` - Add `max_tool_calls` parameter to config
+- `tests/cypher_agent/test_tools.py` - Add tests for tool call limit functionality
+
+**Reference:**
+- See `mongodb_agent/agent.py` for pattern (calls `reset_tool_call_count()` in `query()` method)
+- See `mongodb_agent/config.py` for config pattern with `max_tool_calls` field
 
 ---
 
