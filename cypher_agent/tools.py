@@ -1,6 +1,3 @@
-# Tool functions for Cypher Query Agent
-"""Neo4j query execution tool function that agent can call"""
-
 import json
 import logging
 import re
@@ -15,14 +12,11 @@ from mongodb_agent.tools import ToolCallLimitExceeded
 
 logger = logging.getLogger(__name__)
 
-# Tool call limit constants
 DEFAULT_TOOL_CALL_COUNT = 0
 DEFAULT_MAX_TOOL_CALLS = 5
 
-# Global Neo4j driver instance
 _neo4j_driver: neo4j.Driver | None = None
 
-# Global state for tool call counting
 _tool_call_count = DEFAULT_TOOL_CALL_COUNT
 _initial_max_tool_calls = DEFAULT_MAX_TOOL_CALLS
 _extended_max_tool_calls = DEFAULT_MAX_TOOL_CALLS
@@ -30,13 +24,11 @@ _current_max_tool_calls = DEFAULT_MAX_TOOL_CALLS
 _enable_adaptive_limit = False
 _counter_lock = threading.Lock()
 
-# Global state for query result limiting
-_max_query_results = 100  # Default max results per query
-_max_tool_result_size = 50000  # Default max tool result size in characters
+_max_query_results = 100
+_max_tool_result_size = 50000
 
 
 def set_max_tool_calls(max_calls: int) -> None:
-    """Set the maximum number of tool calls allowed."""
     global _initial_max_tool_calls, _current_max_tool_calls
     with _counter_lock:
         _initial_max_tool_calls = max_calls
@@ -46,7 +38,6 @@ def set_max_tool_calls(max_calls: int) -> None:
 def set_adaptive_limit_config(
     initial_limit: int, extended_limit: int, enabled: bool
 ) -> None:
-    """Configure adaptive limit settings."""
     global \
         _initial_max_tool_calls, \
         _extended_max_tool_calls, \
@@ -68,7 +59,6 @@ def reset_tool_call_count() -> None:
 
 
 def get_tool_call_count() -> int:
-    """Get the current tool call count."""
     global _tool_call_count
     with _counter_lock:
         return _tool_call_count
@@ -93,7 +83,6 @@ def _check_and_increment_tool_call_count() -> int:
         return _tool_call_count
 
 
-# Forbidden write operations
 FORBIDDEN_KEYWORDS = ["CREATE", "DELETE", "SET", "REMOVE", "MERGE"]
 FORBIDDEN_PATTERNS = [
     r"\bCREATE\b",
@@ -103,7 +92,6 @@ FORBIDDEN_PATTERNS = [
     r"\bMERGE\b",
 ]
 
-# Allowed read-only keywords
 ALLOWED_KEYWORDS = [
     "MATCH",
     "RETURN",
@@ -123,14 +111,6 @@ ALLOWED_KEYWORDS = [
 
 
 def initialize_neo4j_driver(uri: str, user: str, password: str) -> None:
-    """
-    Initialize Neo4j driver connection.
-
-    Args:
-        uri: Neo4j connection URI (e.g., "bolt://localhost:7687")
-        user: Neo4j username
-        password: Neo4j password
-    """
     global _neo4j_driver
 
     if _neo4j_driver is None:
@@ -148,7 +128,6 @@ def initialize_neo4j_driver(uri: str, user: str, password: str) -> None:
 
 
 def get_neo4j_driver() -> neo4j.Driver:
-    """Get the global Neo4j driver instance."""
     global _neo4j_driver
     if _neo4j_driver is None:
         raise RuntimeError(
@@ -158,14 +137,12 @@ def get_neo4j_driver() -> neo4j.Driver:
 
 
 def set_max_query_results(max_results: int) -> None:
-    """Set the maximum number of query results to return."""
     global _max_query_results
     with _counter_lock:
         _max_query_results = max_results
 
 
 def set_max_tool_result_size(max_size: int) -> None:
-    """Set the maximum size of tool call results in characters."""
     global _max_tool_result_size
     with _counter_lock:
         _max_tool_result_size = max_size
@@ -188,7 +165,6 @@ def get_neo4j_schema(max_size: int | None = None) -> str:
             # Query schema using db.schema.nodeTypeProperties()
             result = session.run("CALL db.schema.nodeTypeProperties()")
 
-            # Collect schema information
             node_properties = {}
             rel_properties = {}
             node_labels = set()
@@ -224,7 +200,6 @@ def get_neo4j_schema(max_size: int | None = None) -> str:
                             {"name": properties, "types": property_types}
                         )
 
-            # Format schema as text
             schema_lines = ["NEO4J SCHEMA", "=" * 50, ""]
 
             # Node Labels and Properties
@@ -304,22 +279,6 @@ def get_neo4j_schema(max_size: int | None = None) -> str:
 
 
 def validate_cypher_query(query: str) -> tuple[bool, str | None]:
-    """
-    Validate Cypher query before execution.
-
-    Checks for:
-    1. Write operations (CREATE, DELETE, SET, REMOVE, MERGE)
-    2. Basic syntax validation (balanced parentheses, brackets)
-    3. GROUP BY usage (should use WITH aggregation instead)
-
-    Args:
-        query: Cypher query string to validate
-
-    Returns:
-        Tuple of (is_valid, error_message)
-        - If valid: (True, None)
-        - If invalid: (False, error_message)
-    """
     if not query or not query.strip():
         return False, "Query is empty"
 
@@ -408,10 +367,8 @@ def execute_cypher_query(query: str) -> dict[str, Any]:
             _tool_call_count = DEFAULT_TOOL_CALL_COUNT
             _current_max_tool_calls = _initial_max_tool_calls
 
-    # Check and increment tool call count (raises exception if limit exceeded)
     _check_and_increment_tool_call_count()
 
-    # Validate query before execution
     is_valid, error_message = validate_cypher_query(query)
     if not is_valid:
         logger.warning(f"Query validation failed: {error_message}")
