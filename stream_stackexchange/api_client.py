@@ -1,5 +1,3 @@
-"""StackExchange API client for HTTP requests"""
-
 import os
 import time
 from typing import Any
@@ -51,16 +49,6 @@ class StackExchangeAPIClient:
         return response.json()
 
     def get_answers(self, question_id: int, site: str) -> dict[str, Any]:
-        """
-        Fetch answers for a question
-
-        Args:
-            question_id: Question ID
-            site: StackExchange site
-
-        Returns:
-            API response as dict
-        """
         url = f"{self.base_url}/{self.questions_endpoint}/{question_id}/answers"
         params = {
             "site": site,
@@ -77,17 +65,6 @@ class StackExchangeAPIClient:
         return data
 
     def get_comments(self, post_id: int, site: str, post_type: str) -> dict[str, Any]:
-        """
-        Fetch comments for a question or answer
-
-        Args:
-            post_id: Question ID or Answer ID
-            site: StackExchange site
-            post_type: "question" or "answer"
-
-        Returns:
-            API response as dict
-        """
         url = f"{self.base_url}/{post_type}s/{post_id}/comments"
         params = {
             "site": site,
@@ -100,5 +77,5 @@ class StackExchangeAPIClient:
         response = requests.get(url, params=params)
         response.raise_for_status()
         data = response.json()
-        time.sleep(0.5)  # Rate limiting
+        time.sleep(0.5)
         return data
