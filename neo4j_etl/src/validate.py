@@ -1,17 +1,11 @@
-"""Validation functions for Neo4j ETL -
-Trusts MongoDB data structure, validates only Neo4j-specific requirements
-"""
-
 from typing import Any
 
-# Neo4j-specific constants
 QUESTION_BODY_MAX_LENGTH = 500
 ANSWER_BODY_MAX_LENGTH = 500
 COMMENT_BODY_MAX_LENGTH = 200
 
 
 def _truncate_text(text: str | None, max_length: int) -> str:
-    """Truncate text to max_length if needed"""
     if not text:
         return ""
     text_str = str(text)
@@ -55,15 +49,6 @@ def _validate_post_with_body(
 
 
 def validate_user(user_data: dict[str, Any]) -> dict[str, Any] | None:
-    """
-    Validate User data for Neo4j injection
-
-    Args:
-        user_data: User dict from MongoDB
-
-    Returns:
-        Validated user dict or None if invalid
-    """
     # User is optional, so if user_id is missing, that's okay
     user_id = user_data.get("user_id")
     if user_id is None:
@@ -77,15 +62,6 @@ def validate_user(user_data: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def validate_comment(comment_data: dict[str, Any]) -> dict[str, Any] | None:
-    """
-    Validate Comment data for Neo4j injection
-
-    Args:
-        comment_data: Comment dict from MongoDB
-
-    Returns:
-        Validated comment dict with truncated body or None if invalid
-    """
     comment_id = comment_data.get("comment_id")
     if not comment_id:
         return None
@@ -99,15 +75,6 @@ def validate_comment(comment_data: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def validate_answer(answer_data: dict[str, Any]) -> dict[str, Any] | None:
-    """
-    Validate Answer data for Neo4j injection
-
-    Args:
-        answer_data: Answer dict from MongoDB
-
-    Returns:
-        Validated answer dict with truncated body or None if invalid
-    """
     return _validate_post_with_body(
         answer_data,
         "answer_id",
@@ -117,15 +84,6 @@ def validate_answer(answer_data: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def validate_question(question_data: dict[str, Any]) -> dict[str, Any] | None:
-    """
-    Validate Question data for Neo4j injection
-
-    Args:
-        question_data: Question dict from MongoDB
-
-    Returns:
-        Validated question dict with truncated body or None if invalid
-    """
     return _validate_post_with_body(
         question_data,
         "question_id",
@@ -139,15 +97,6 @@ def validate_question(question_data: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def validate_tag(tag_name: str | None) -> str | None:
-    """
-    Validate Tag name for Neo4j injection
-
-    Args:
-        tag_name: Tag name string
-
-    Returns:
-        Normalized tag name or None if invalid
-    """
     if not tag_name:
         return None
     tag_str = str(tag_name).strip()
