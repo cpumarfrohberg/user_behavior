@@ -183,8 +183,6 @@ async def test_orchestrator_routes_to_cypher_agent(initialized_orchestrator):
 
 @slow_integration
 async def test_orchestrator_routes_to_both_agents(initialized_orchestrator):
-    """Test orchestrator routes complex questions to both agents."""
-    # Questions that should trigger both agents
     complex_questions = [
         "What are common frustrations and what patterns lead to them?",
         "Show me examples of user confusion and analyze the patterns.",

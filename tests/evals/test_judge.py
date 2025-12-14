@@ -78,7 +78,6 @@ async def test_judge_evaluates_answer(test_question, test_answer):
 @pytest.mark.slow
 @pytest.mark.timeout(120)
 async def test_judge_output_structure(test_question, test_answer):
-    """Test that judge output has correct structure"""
     result = await evaluate_answer(test_question, test_answer)
 
     # Verify result structure
