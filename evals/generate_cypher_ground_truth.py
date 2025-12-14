@@ -19,8 +19,6 @@ from config import NEO4J_PASSWORD, NEO4J_URI, NEO4J_USER
 
 logger = logging.getLogger(__name__)
 
-
-# Query definitions
 QUERY_DEFINITIONS = [
     {
         "name": "user_most_questions",
@@ -108,28 +106,28 @@ QUERY_DEFINITIONS = [
 
 
 def execute_cypher_query(driver: Any, query: str) -> list[dict[str, Any]]:
-    """Execute a Cypher query and return results as list of dicts."""
     with driver.session(database="neo4j") as session:
         result = session.run(query)
         records = []
         for record in result:
             record_dict = {}
             for key in record.keys():
+                # Normalize key: strip alias prefix (e.g., 'q.question_id' -> 'question_id')
+                normalized_key = key.split(".")[-1] if "." in key else key
                 value = record[key]
                 if isinstance(value, list):
-                    record_dict[key] = [
+                    record_dict[normalized_key] = [
                         str(v) if hasattr(v, "__str__") else v for v in value
                     ]
                 elif hasattr(value, "__str__"):
-                    record_dict[key] = str(value)
+                    record_dict[normalized_key] = str(value)
                 else:
-                    record_dict[key] = value
+                    record_dict[normalized_key] = value
             records.append(record_dict)
         return records
 
 
 def _extract_question_ids(results: list[dict[str, Any]]) -> list[str]:
-    """Extract question IDs from query results."""
     return [f"question_{r['question_id']}" for r in results if r.get("question_id")]
 
 
@@ -156,7 +154,6 @@ def _extract_questions_from_user(
 def _extract_questions_from_users(
     results: list[dict[str, Any]], driver: Any
 ) -> list[str]:
-    """Extract question IDs for questions asked by multiple users."""
     if not results:
         return []
 
@@ -178,7 +175,6 @@ def _extract_questions_from_users(
 def _create_ground_truth_entry(
     query_def: dict[str, Any], expected_sources: list[str]
 ) -> dict[str, Any]:
-    """Create a ground truth entry from query definition and sources."""
     return {
         "question": query_def["question"],
         "expected_sources": expected_sources,
@@ -192,18 +188,38 @@ def _process_query_definition(
     """Process a single query definition and return ground truth entry."""
     try:
         results = execute_cypher_query(driver, query_def["query"])
+        logger.debug(
+            f"Query {query_def['name']} returned {len(results)} results: {results[:2]}"
+        )
+
+        if not results:
+            logger.warning(
+                f"Query {query_def['name']} returned no results. "
+                f"Query: {query_def['query'][:100]}..."
+            )
+            return None
+
         extract_fn = query_def.get("extract_sources", _extract_question_ids)
         expected_sources = extract_fn(results, driver)
+        logger.debug(
+            f"Extracted {len(expected_sources)} sources from {query_def['name']}: {expected_sources[:3]}"
+        )
 
         if expected_sources:
             return _create_ground_truth_entry(query_def, expected_sources)
+        else:
+            logger.warning(
+                f"Query {query_def['name']} returned results but no valid sources extracted"
+            )
     except Exception as e:
-        logger.warning(f"Failed to generate ground truth for {query_def['name']}: {e}")
+        logger.warning(
+            f"Failed to generate ground truth for {query_def['name']}: {e}",
+            exc_info=True,
+        )
     return None
 
 
 def generate_ground_truth_from_neo4j() -> list[dict[str, Any]]:
-    """Generate ground truth by running predefined Cypher queries and extracting results."""
     driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
 
     try:
@@ -212,6 +228,14 @@ def generate_ground_truth_from_neo4j() -> list[dict[str, Any]]:
     except Exception as e:
         logger.error(f"Failed to connect to Neo4j: {e}")
         raise
+
+    # Test query to verify data exists
+    test_query = "MATCH (q:Question) RETURN count(q) as total"
+    test_results = execute_cypher_query(driver, test_query)
+    if test_results:
+        logger.info(f"Database contains {test_results[0].get('total', 0)} questions")
+    else:
+        logger.warning("Test query returned no results - database may be empty")
 
     ground_truth = []
     for query_def in QUERY_DEFINITIONS:
@@ -242,6 +266,6 @@ def save_cypher_ground_truth(
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.DEBUG)
     ground_truth = generate_ground_truth_from_neo4j()
     save_cypher_ground_truth(ground_truth)
