@@ -1,5 +1,3 @@
-# CLI for User Behavior Analysis using StackExchange RAG
-
 import asyncio
 import json
 import subprocess
@@ -17,8 +15,20 @@ from config import (
     DEFAULT_JUDGE_MODEL,
     MONGODB_COLLECTION,
     MONGODB_DB,
+    NEO4J_PASSWORD,
+    NEO4J_URI,
+    NEO4J_USER,
 )
-from evals.evaluate import DEFAULT_OUTPUT_PATH, evaluate_agent
+from cypher_agent.agent import CypherQueryAgent
+from cypher_agent.config import CypherAgentConfig
+from cypher_agent.tools import initialize_neo4j_driver
+from evals.evaluate import (
+    DEFAULT_OUTPUT_PATH,
+    evaluate_agent,
+)
+from evals.evaluate import (
+    evaluate_cypher_agent as run_cypher_evaluation,
+)
 from evals.generate_ground_truth import (
     generate_ground_truth_from_mongodb,
     save_ground_truth,
@@ -29,131 +39,195 @@ from stream_stackexchange.collector import collect_and_store
 
 app = typer.Typer()
 
+EXIT_CODE_ERROR = 1
+MAX_SOURCES_DISPLAY = 10
+SEPARATOR_WIDTH = 60
+MAX_DETAILED_RESULTS = 5
+QUESTION_PREVIEW_LENGTH = 50
+QUERY_PREVIEW_LENGTH = 50
+DEFAULT_PAGES = 5
+DEFAULT_MAX_SAMPLES = 15
+DEFAULT_NUM_QUESTIONS = 0
+DEFAULT_SCORE = 0.0
+
 
 def _handle_error(e: Exception, verbose: bool = False) -> None:
-    """Handle errors with optional verbose traceback."""
-    typer.echo(f"❌ Error: {str(e)}", err=True)
+    typer.echo(f"Error: {str(e)}", err=True)
     if verbose:
         typer.echo(traceback.format_exc(), err=True)
-    raise typer.Exit(1)
+    raise typer.Exit(EXIT_CODE_ERROR)
 
 
 def _run_async(coro: Callable, verbose: bool = False) -> Any:
-    """Run async function with error handling."""
     try:
         return asyncio.run(coro())
     except Exception as e:
         _handle_error(e, verbose)
 
 
-def _init_mongodb_agent(verbose: bool = False) -> MongoDBSearchAgent:
-    """Initialize MongoDB agent with standard config."""
-    if verbose:
-        typer.echo("📥 Initializing MongoDB Agent...")
+def _init_mongodb_agent() -> MongoDBSearchAgent:
     config = MongoDBConfig()
     config.collection = "questions"
     agent = MongoDBSearchAgent(config)
     agent.initialize()
-    if verbose:
-        typer.echo("✅ Agent initialized successfully!")
+    return agent
+
+
+def _init_cypher_agent() -> CypherQueryAgent:
+    initialize_neo4j_driver(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
+    config = CypherAgentConfig()
+    agent = CypherQueryAgent(config)
+    agent.initialize()
     return agent
 
 
 def _print_answer(result: Any, question: str, verbose: bool = False) -> None:
-    """Print agent answer with formatting."""
-    typer.echo(f"\n❓ Question: {question}")
-    typer.echo(f"💡 Answer: {result.answer.answer}")
-    typer.echo(f"🎯 Confidence: {result.answer.confidence:.2f}")
+    typer.echo(f"\nQuestion: {question}")
+    typer.echo(f"Answer: {result.answer.answer}")
+    typer.echo(f"Confidence: {result.answer.confidence:.2f}")
 
     if hasattr(result.answer, "agents_used"):
-        typer.echo(f"🤖 Agents Used: {', '.join(result.answer.agents_used)}")
+        typer.echo(f"Agents: {', '.join(result.answer.agents_used)}")
     else:
-        typer.echo(f"🔍 Tool Calls: {len(result.tool_calls)}")
+        typer.echo(f"Tool Calls: {len(result.tool_calls)}")
 
     if verbose:
         if hasattr(result.answer, "agents_used"):
-            typer.echo(f"\n💭 Routing Reasoning: {result.answer.reasoning}")
+            typer.echo(f"Reasoning: {result.answer.reasoning}")
         else:
-            typer.echo("\n📋 Tool Call History:")
             for i, call in enumerate(result.tool_calls, 1):
                 typer.echo(f"  {i}. {call['tool_name']}: {call['args']}")
             if result.answer.reasoning:
-                typer.echo(f"\n💭 Reasoning: {result.answer.reasoning}")
+                typer.echo(f"Reasoning: {result.answer.reasoning}")
 
     if result.answer.sources_used:
-        typer.echo("\n📚 Sources:")
-        for i, source in enumerate(result.answer.sources_used[:10], 1):
-            typer.echo(f"  {i}. {source}")
+        typer.echo("Sources:")
+        for source in result.answer.sources_used[:MAX_SOURCES_DISPLAY]:
+            typer.echo(f"  - {source}")
+
+
+def _print_evaluation_summary(
+    results_data: dict[str, Any], verbose: bool = False
+) -> None:
+    summary = results_data.get("summary", {})
+    typer.echo("\n" + "=" * SEPARATOR_WIDTH)
+    typer.echo("EVALUATION SUMMARY")
+    typer.echo("=" * SEPARATOR_WIDTH)
+    typer.echo(f"Questions: {results_data.get('num_questions', DEFAULT_NUM_QUESTIONS)}")
+    typer.echo(f"Hit Rate: {summary.get('avg_hit_rate', DEFAULT_SCORE):.2f}")
+    typer.echo(f"MRR: {summary.get('avg_mrr', DEFAULT_SCORE):.2f}")
+    typer.echo(f"Judge Score: {summary.get('avg_judge_score', DEFAULT_SCORE):.2f}")
+    typer.echo(
+        f"Combined Score: {summary.get('avg_combined_score', DEFAULT_SCORE):.2f}"
+    )
+    typer.echo(f"Total Tokens: {summary.get('total_tokens', DEFAULT_NUM_QUESTIONS):,}")
+    typer.echo(f"Results: {results_data.get('output_file', 'N/A')}")
+    typer.echo("=" * SEPARATOR_WIDTH)
+
+    if verbose:
+        typer.echo("\nDetailed results:")
+        for i, result in enumerate(
+            results_data.get("results", [])[:MAX_DETAILED_RESULTS], 1
+        ):
+            typer.echo(
+                f"\n  {i}. {result.get('question', 'N/A')[:QUESTION_PREVIEW_LENGTH]}..."
+            )
+            typer.echo(f"     Hit Rate: {result.get('hit_rate', DEFAULT_SCORE):.2f}")
+            typer.echo(f"     MRR: {result.get('mrr', DEFAULT_SCORE):.2f}")
+            typer.echo(f"     Judge: {result.get('judge_score', DEFAULT_SCORE):.2f}")
+            typer.echo(
+                f"     Combined: {result.get('combined_score', DEFAULT_SCORE):.2f}"
+            )
+            if result.get("query_used"):
+                query = result["query_used"]
+                typer.echo(
+                    f"     Query: {query[:QUERY_PREVIEW_LENGTH]}{'...' if len(query) > QUERY_PREVIEW_LENGTH else ''}"
+                )
+
+
+def _run_evaluation(
+    ground_truth_path: Path,
+    agent_query_fn: Callable[[str], Any],
+    evaluation_fn: Callable,
+    output: str,
+    judge_model: str | None,
+    max_samples: int | None,
+    verbose: bool,
+) -> None:
+    if not ground_truth_path.exists():
+        typer.echo(f"Error: Ground truth file not found: {ground_truth_path}", err=True)
+        raise typer.Exit(EXIT_CODE_ERROR)
+
+    with open(ground_truth_path, "r") as f:
+        total_questions = len(json.load(f))
+
+    num_to_evaluate = (
+        max_samples if max_samples and max_samples > 0 else total_questions
+    )
+    if verbose:
+        typer.echo(f"Loaded {total_questions} questions, evaluating {num_to_evaluate}")
+
+    async def execute():
+        result_path = await evaluation_fn(
+            ground_truth_path=ground_truth_path,
+            agent_query_fn=agent_query_fn,
+            output_path=output,
+            judge_model=judge_model or DEFAULT_JUDGE_MODEL,
+            max_samples=max_samples if max_samples and max_samples > 0 else None,
+        )
+
+        with open(result_path, "r") as f:
+            results_data = json.load(f)
+        results_data["output_file"] = str(result_path)
+        _print_evaluation_summary(results_data, verbose)
+        return result_path
+
+    _run_async(execute, verbose)
 
 
 @app.command()
 def collect(
-    pages: int = typer.Option(
-        5,
-        "--pages",
-        "-p",
-        help="Number of pages to fetch (default: 5)",
-    ),
-    site: str = typer.Option(
-        None,
-        "--site",
-        "-s",
-        help="StackExchange site (default: from config)",
-    ),
-    tag: str = typer.Option(
-        None,
-        "--tag",
-        "-t",
-        help="Tag to filter by (default: from config)",
-    ),
+    pages: int = typer.Option(DEFAULT_PAGES, "--pages", "-p"),
+    site: str = typer.Option(None, "--site", "-s"),
+    tag: str = typer.Option(None, "--tag", "-t"),
 ):
-    """Collect questions from StackExchange API and store in MongoDB"""
+    """Collect questions from StackExchange API"""
     try:
-        typer.echo("📥 Starting data collection from StackExchange...")
         total_stored = collect_and_store(site=site, tag=tag, pages=pages)
-        typer.echo(
-            f"\n✅ Collection complete: {total_stored} questions stored in MongoDB"
-        )
+        typer.echo(f"Collected {total_stored} questions")
     except Exception as e:
         _handle_error(e)
 
 
 @app.command()
 def agent_ask(
-    question: str = typer.Argument(..., help="Question to ask the agent"),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show tool calls"),
+    question: str = typer.Argument(...),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
 ):
-    """Ask a question using the MongoDB agent directly (makes multiple searches)"""
+    """Ask a question using the MongoDB agent"""
     try:
-        agent = _init_mongodb_agent(verbose)
-        typer.echo(
-            "🤖 Running agent query"
-            + ("..." if verbose else " (this may take a minute)...")
-        )
+        agent = _init_mongodb_agent()
 
-        async def run_query():
+        async def run():
             result = await agent.query(question)
             _print_answer(result, question, verbose)
 
-        _run_async(run_query, verbose)
+        _run_async(run, verbose)
     except Exception as e:
         _handle_error(e, verbose)
 
 
 @app.command()
 def orchestrator_ask(
-    question: str = typer.Argument(..., help="Question to ask"),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed output"),
+    question: str = typer.Argument(...),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
 ):
-    """Ask a question using the Orchestrator Agent (intelligently routes to RAG or Cypher Query Agent)"""
+    """Ask a question using the Orchestrator Agent"""
     from orchestrator.agent import OrchestratorAgent
     from orchestrator.config import OrchestratorConfig
     from orchestrator.tools import initialize_mongodb_agent
 
     try:
-        if verbose:
-            typer.echo("📥 Initializing Orchestrator Agent...")
-
         mongodb_config = MongoDBConfig()
         mongodb_config.collection = "questions"
         initialize_mongodb_agent(mongodb_config)
@@ -161,84 +235,45 @@ def orchestrator_ask(
         orchestrator = OrchestratorAgent(OrchestratorConfig())
         orchestrator.initialize()
 
-        typer.echo(
-            "✅ Orchestrator initialized successfully!"
-            if verbose
-            else "🎯 Orchestrator is analyzing your question..."
-        )
-
-        async def run_query():
+        async def run():
             result = await orchestrator.query(question)
-            # result is now OrchestratorAgentResult with answer and token_usage
-            # Wrap in result-like object for _print_answer (which expects .answer and .tool_calls)
             result_wrapper = type(
                 "Result", (), {"answer": result.answer, "tool_calls": []}
             )()
             _print_answer(result_wrapper, question, verbose)
-
             if verbose:
                 typer.echo(
-                    f"\n💰 Token Usage: {result.token_usage.total_tokens} total "
+                    f"\nTokens: {result.token_usage.total_tokens} "
                     f"({result.token_usage.input_tokens} in, {result.token_usage.output_tokens} out)"
                 )
 
-        _run_async(run_query, verbose)
+        _run_async(run, verbose)
     except Exception as e:
         _handle_error(e, verbose)
 
 
 @app.command()
 def generate_ground_truth(
-    samples: int = typer.Option(
-        DEFAULT_GROUND_TRUTH_SAMPLES,
-        "--samples",
-        "-n",
-        help="Number of samples to generate",
-    ),
-    output: str = typer.Option(
-        DEFAULT_GROUND_TRUTH_OUTPUT,
-        "--output",
-        "-o",
-        help="Output JSON file path",
-    ),
+    samples: int = typer.Option(DEFAULT_GROUND_TRUTH_SAMPLES, "--samples", "-n"),
+    output: str = typer.Option(DEFAULT_GROUND_TRUTH_OUTPUT, "--output", "-o"),
     min_title_length: int = typer.Option(
-        DEFAULT_GROUND_TRUTH_MIN_TITLE_LENGTH,
-        "--min-title-length",
-        "-m",
-        help="Minimum title length to include",
+        DEFAULT_GROUND_TRUTH_MIN_TITLE_LENGTH, "--min-title-length", "-m"
     ),
 ):
-    """Generate ground truth dataset for evaluation"""
+    """Generate ground truth dataset"""
     try:
-        typer.echo(f"📥 Connecting to MongoDB: {MONGODB_DB}.{MONGODB_COLLECTION}")
-
         ground_truth = generate_ground_truth_from_mongodb(
             n_samples=samples,
             min_title_length=min_title_length,
         )
 
-        typer.echo(f"📊 Found {len(ground_truth)} questions matching criteria")
-
-        if len(ground_truth) < samples:
-            typer.echo(
-                f"⚠️  Warning: Only found {len(ground_truth)} questions, requested {samples}"
-            )
-
         if not ground_truth:
-            typer.echo("❌ Error: No ground truth data generated", err=True)
-            raise typer.Exit(1)
+            typer.echo("Error: No ground truth data generated", err=True)
+            raise typer.Exit(EXIT_CODE_ERROR)
 
         save_ground_truth(ground_truth, output)
-        output_path = Path(output)
-        if output_path.suffix != ".json":
-            output_path = output_path.with_suffix(".json")
-
-        typer.echo(f"💾 Saved ground truth to {output_path} (JSON format)")
-        typer.echo(
-            f"\n✅ Successfully generated {len(ground_truth)} ground truth examples"
-        )
-        typer.echo(f"   Output: {output_path}")
-        typer.echo("\n💡 Tip: Review and edit the file to remove low-quality examples")
+        output_path = Path(output).with_suffix(".json")
+        typer.echo(f"Generated {len(ground_truth)} examples: {output_path}")
     except Exception as e:
         _handle_error(e)
 
@@ -246,171 +281,75 @@ def generate_ground_truth(
 @app.command()
 def evaluate(
     ground_truth: str = typer.Option(
-        DEFAULT_GROUND_TRUTH_OUTPUT,
-        "--ground-truth",
-        "-g",
-        help="Path to ground truth JSON file",
+        DEFAULT_GROUND_TRUTH_OUTPUT, "--ground-truth", "-g"
+    ),
+    output: str = typer.Option(DEFAULT_OUTPUT_PATH, "--output", "-o"),
+    judge_model: str = typer.Option(None, "--judge-model", "-j"),
+    max_samples: int = typer.Option(DEFAULT_MAX_SAMPLES, "--max-samples", "-n"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+):
+    """Evaluate MongoDB agent"""
+    try:
+        agent = _init_mongodb_agent()
+        _run_evaluation(
+            ground_truth_path=Path(ground_truth),
+            agent_query_fn=lambda q: agent.query(q),
+            evaluation_fn=evaluate_agent,
+            output=output,
+            judge_model=judge_model,
+            max_samples=max_samples,
+            verbose=verbose,
+        )
+    except Exception as e:
+        _handle_error(e, verbose)
+
+
+@app.command()
+def evaluate_cypher_agent(
+    ground_truth: str = typer.Option(
+        "evals/cypher_ground_truth.json", "--ground-truth", "-g"
     ),
     output: str = typer.Option(
-        DEFAULT_OUTPUT_PATH,
-        "--output",
-        "-o",
-        help="Path to output JSON file for results",
+        "evals/results/cypher_evaluation.json", "--output", "-o"
     ),
-    judge_model: str = typer.Option(
-        None,
-        "--judge-model",
-        "-j",
-        help=f"Model to use for judging (default: {DEFAULT_JUDGE_MODEL})",
-    ),
-    max_samples: int = typer.Option(
-        15,
-        "--max-samples",
-        "-n",
-        help="Maximum number of questions to evaluate (default: 15). Use 0 to evaluate all.",
-    ),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed output"),
+    judge_model: str = typer.Option(None, "--judge-model", "-j"),
+    max_samples: int = typer.Option(DEFAULT_MAX_SAMPLES, "--max-samples", "-n"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
 ):
-    """Evaluate MongoDB agent using ground truth and judge LLM"""
+    """Evaluate Cypher query agent"""
     try:
-        ground_truth_path = Path(ground_truth)
-        if not ground_truth_path.exists():
-            typer.echo(
-                f"❌ Error: Ground truth file not found: {ground_truth_path}", err=True
-            )
-            raise typer.Exit(1)
-
-        with open(ground_truth_path, "r") as f:
-            total_questions = len(json.load(f))
-
-        # Determine how many questions to evaluate
-        num_to_evaluate = max_samples if max_samples > 0 else total_questions
-
-        typer.echo(f"📊 Loaded {total_questions} questions from ground truth")
-        if max_samples > 0 and max_samples < total_questions:
-            typer.echo(
-                f"🎲 Will evaluate {num_to_evaluate} random questions (sampling from {total_questions})"
-            )
-        else:
-            typer.echo(f"📝 Will evaluate all {num_to_evaluate} questions")
-        typer.echo(f"📁 Ground truth: {ground_truth_path}")
-        typer.echo(f"💾 Output: {output}")
-
-        agent = _init_mongodb_agent(verbose)
-        model_to_use = judge_model or DEFAULT_JUDGE_MODEL
-        if verbose:
-            typer.echo(f"⚖️  Using judge model: {model_to_use}")
-
-        typer.echo(f"\n🚀 Starting evaluation of {num_to_evaluate} questions...")
-        typer.echo(
-            "⏳ This may take a while (each question requires agent + judge evaluation)...\n"
+        agent = _init_cypher_agent()
+        _run_evaluation(
+            ground_truth_path=Path(ground_truth),
+            agent_query_fn=lambda q: agent.query(q),
+            evaluation_fn=run_cypher_evaluation,
+            output=output,
+            judge_model=judge_model,
+            max_samples=max_samples,
+            verbose=verbose,
         )
-
-        async def execute_evaluation():
-            result_path = await evaluate_agent(
-                ground_truth_path=ground_truth_path,
-                agent_query_fn=lambda q: agent.query(q),
-                output_path=output,
-                judge_model=model_to_use,
-                max_samples=max_samples if max_samples > 0 else None,
-            )
-
-            with open(result_path, "r") as f:
-                results_data = json.load(f)
-
-            summary = results_data.get("summary", {})
-            typer.echo("\n" + "=" * 60)
-            typer.echo("📊 EVALUATION SUMMARY")
-            typer.echo("=" * 60)
-            typer.echo(
-                f"✅ Questions evaluated: {results_data.get('num_questions', 0)}"
-            )
-            typer.echo(f"📈 Average Hit Rate: {summary.get('avg_hit_rate', 0.0):.2f}")
-            typer.echo(f"📈 Average MRR: {summary.get('avg_mrr', 0.0):.2f}")
-            typer.echo(
-                f"⚖️  Average Judge Score: {summary.get('avg_judge_score', 0.0):.2f}"
-            )
-            typer.echo(
-                f"🎯 Average Combined Score: {summary.get('avg_combined_score', 0.0):.2f}"
-            )
-            typer.echo(f"🔢 Total Tokens: {summary.get('total_tokens', 0):,}")
-            typer.echo(f"💾 Results saved to: {result_path}")
-            typer.echo("=" * 60)
-
-            if verbose:
-                typer.echo("\n📋 Detailed results:")
-                for i, result in enumerate(results_data.get("results", [])[:5], 1):
-                    typer.echo(f"\n  {i}. {result.get('question', 'N/A')[:50]}...")
-                    typer.echo(f"     Hit Rate: {result.get('hit_rate', 0.0):.2f}")
-                    typer.echo(f"     MRR: {result.get('mrr', 0.0):.2f}")
-                    typer.echo(
-                        f"     Judge Score: {result.get('judge_score', 0.0):.2f}"
-                    )
-                    typer.echo(
-                        f"     Combined Score: {result.get('combined_score', 0.0):.2f}"
-                    )
-
-            return result_path
-
-        _run_async(execute_evaluation, verbose)
     except Exception as e:
         _handle_error(e, verbose)
 
 
 @app.command()
 def test(
-    path: str = typer.Option(
-        "tests",
-        "--path",
-        "-p",
-        help="Test path or file (default: 'tests' - runs all tests)",
-    ),
-    verbose: bool = typer.Option(
-        False, "--verbose", "-v", help="Verbose output (pytest -v)"
-    ),
-    markers: str = typer.Option(
-        None,
-        "--markers",
-        "-m",
-        help="Run tests matching markers (e.g., 'integration', 'not slow')",
-    ),
-    coverage: bool = typer.Option(
-        False, "--coverage", "-c", help="Run with coverage report"
-    ),
+    path: str = typer.Option("tests", "--path", "-p"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+    markers: str = typer.Option(None, "--markers", "-m"),
+    coverage: bool = typer.Option(False, "--coverage", "-c"),
 ):
     """Run tests using pytest"""
     try:
-        typer.echo(f"🧪 Running tests: {path}")
-        if markers:
-            typer.echo(f"📌 Filtering by markers: {markers}")
-
-        # Build pytest command
-        cmd = ["uv", "run", "pytest", path]
-
-        if verbose:
-            cmd.append("-v")
-        else:
-            cmd.append("-q")  # Quiet mode by default
-
+        cmd = ["uv", "run", "pytest", path, "-v" if verbose else "-q"]
         if markers:
             cmd.extend(["-m", markers])
-
         if coverage:
             cmd.extend(["--cov", ".", "--cov-report", "term-missing"])
 
-        typer.echo(f"🔧 Command: {' '.join(cmd)}\n")
-
-        # Run pytest
         result = subprocess.run(cmd, cwd=Path.cwd())
-
-        if result.returncode == 0:
-            typer.echo("\n✅ All tests passed!")
-        else:
-            typer.echo(
-                f"\n❌ Tests failed with exit code {result.returncode}", err=True
-            )
+        if result.returncode != 0:
             sys.exit(result.returncode)
-
     except Exception as e:
         _handle_error(e, verbose)
 

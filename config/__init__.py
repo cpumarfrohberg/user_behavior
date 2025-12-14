@@ -98,6 +98,9 @@ DEFAULT_JUDGE_TEMPERATURE = 0.1  # Lower temperature for Judge (consistent valid
 DEFAULT_MAX_TOKENS = (
     1000  # Increased for quantized models that need more tokens for JSON output
 )
+CYPHER_AGENT_MAX_TOKENS = (
+    4000  # Higher limit for Cypher agent to handle large query results
+)
 
 DEFAULT_NUM_RESULTS = 1
 

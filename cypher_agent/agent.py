@@ -10,7 +10,6 @@ from pydantic_ai.messages import FunctionToolCallEvent
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
-from config import DEFAULT_MAX_TOKENS
 from config.instructions import InstructionsConfig, InstructionType
 from cypher_agent.config import CypherAgentConfig
 from cypher_agent.models import (
@@ -121,7 +120,7 @@ class CypherQueryAgent:
             tools=[execute_cypher_query],
             instructions=instructions,
             output_type=CypherAnswer,
-            model_settings=ModelSettings(max_tokens=DEFAULT_MAX_TOKENS),
+            model_settings=ModelSettings(max_tokens=self.config.max_tokens),
         )
 
         logger.info("Cypher Query Agent initialized successfully")

@@ -228,9 +228,9 @@ Refactored all three agent instruction sets (Orchestrator, MongoDB, Cypher) to r
 
 ---
 
-## Phase 2: Evaluation Framework for Cypher Agent ⏳ PENDING
+## Phase 2: Evaluation Framework for Cypher Agent ✅ COMPLETE
 
-**Status:** ⏳ **PENDING** - Not yet started
+**Status:** ✅ **COMPLETE** - All tasks implemented and tested
 
 ### 2.1 Create Ground Truth for Cypher Queries
 
@@ -265,6 +265,92 @@ Refactored all three agent instruction sets (Orchestrator, MongoDB, Cypher) to r
 
 - Add command: `evaluate-cypher-agent` (similar to existing evaluation commands)
 - Support ground truth file, output path, judge model options
+
+**Completed:**
+- ✅ All 4 tasks implemented
+- ✅ Ground truth generation working (6 entries generated)
+- ✅ Evaluation framework integrated
+- ✅ Cypher-specific metrics module created
+- ✅ CLI command added and tested
+
+---
+
+### 2.5 Evaluation Results and Findings
+
+**Status:** ✅ **EVALUATION COMPLETED** - Initial evaluation run successful with identified issues
+
+**Evaluation Summary (6 questions tested):**
+- ✅ Questions evaluated: 6
+- 📈 Average Hit Rate: 0.50 (50% - half found at least one expected source)
+- 📈 Average MRR: 0.50 (when sources found, they appear early)
+- ⚖️ Average Judge Score: 0.44 (below 0.5 indicates quality issues)
+- 🎯 Average Combined Score: 0.08 (very low, penalized by high token usage)
+- 🔢 Total Tokens: 59,153 (high token consumption)
+
+**What's Working:**
+1. ✅ Evaluation framework runs end-to-end successfully
+2. ✅ Agent generates valid Cypher queries (MATCH, WITH, RETURN patterns)
+3. ✅ Judge scores are reasonable (0.50-0.75 range when queries complete)
+4. ✅ Error handling works correctly (failures caught and logged)
+
+**Critical Issues Identified:**
+
+1. **Token Limit Exceeded (Question 5)**
+   - Error: Model token limit (1000) exceeded while emitting a tool call
+   - Root cause: Query results too large, included in tool call arguments
+   - Impact: Agent cannot complete queries with large result sets
+
+2. **Context Length Exceeded (Question 6)**
+   - Error: 175,747 tokens vs 128,000 max context length
+   - Root causes:
+     - Neo4j schema injection may be too large
+     - Query results are huge and included in context
+     - Accumulated context from previous tool calls
+   - Impact: Agent cannot process complex queries or large schemas
+
+3. **Neo4j Connection Errors**
+   - Connection failures at teardown (cleanup issues)
+   - Not affecting evaluation but should be addressed
+
+**Performance Analysis:**
+- Hit Rate (0.50) and MRR (0.50) are acceptable but could be improved
+- Judge Score (0.44) below 0.5 indicates answer quality issues
+- Combined Score (0.08) very low due to high token penalty
+- Token usage (59,153) is high, contributing to low combined score
+
+**Recommended Optimizations:**
+
+1. **Schema Optimization**
+   - Truncate or summarize Neo4j schema before injection
+   - Only include relevant schema portions for specific queries
+   - Consider schema caching with size limits
+
+2. **Result Limiting**
+   - Cap query result sizes before including in context
+   - Add automatic LIMIT clauses to prevent huge result sets
+   - Summarize large results instead of including full data
+
+3. **Token Limit Configuration**
+   - Increase `max_tokens` for tool calls (currently 1000)
+   - Configure appropriate limits based on expected result sizes
+   - Add token usage monitoring and warnings
+
+4. **Context Management**
+   - Clear or summarize intermediate results between tool calls
+   - Implement context window management
+   - Use result pagination for large datasets
+
+5. **Query Optimization**
+   - Add result limits (LIMIT clauses) to all queries
+   - Optimize queries to return only necessary data
+   - Consider query result summarization for large datasets
+
+**Next Steps:**
+- Implement schema truncation/summarization
+- Add automatic result limiting to queries
+- Increase token limits for tool calls
+- Add context management between tool calls
+- Re-run evaluation after optimizations
 
 ---
 
