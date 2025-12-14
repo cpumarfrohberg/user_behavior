@@ -1,5 +1,3 @@
-"""Tools for Orchestrator Agent to call other agents"""
-
 import asyncio
 import logging
 from typing import Any, Callable, Generic, TypeVar
@@ -17,15 +15,13 @@ AgentT = TypeVar("AgentT")
 ConfigT = TypeVar("ConfigT")
 ResultT = TypeVar("ResultT")
 
-# Constants
 PLACEHOLDER_CONFIDENCE = 0.0
 ERROR_CONFIDENCE = 0.0
 MIN_CONFIDENCE = 0.0
 NUM_AGENTS_FOR_AVERAGING = 2  # Number of agents to average confidence from
 DEFAULT_TOOL_CALLS = 0  # Default value for tool_calls when not present
-QUESTION_LOG_TRUNCATE_LENGTH = 100  # Maximum length for question in log messages
+QUESTION_LOG_TRUNCATE_LENGTH = 100
 
-# Confidence calculation constants for ToolCallLimitExceeded
 BASE_CONFIDENCE_ON_LIMIT = 0.5  # Base confidence when limit is hit (conservative)
 MAX_CONFIDENCE_ON_LIMIT = (
     0.75  # Maximum confidence when limit is hit (we don't have actual result)
@@ -140,7 +136,6 @@ def _format_cypher_result(result: Any) -> dict[str, Any]:
     }
 
 
-# Initialize agent managers
 mongodb_manager = AgentManager(
     agent_name="MongoDB Search Agent",
     agent_class=MongoDBSearchAgent,
@@ -242,29 +237,10 @@ async def call_rag_agent(question: str) -> dict[str, Any]:
 
 
 async def call_cypher_query_agent(question: str) -> dict[str, Any]:
-    """
-    Call Cypher Query Agent to answer a question using graph queries.
-
-    Args:
-        question: User question to answer
-
-    Returns:
-        Dictionary with answer, confidence, sources_used, reasoning, tool_calls, and agent name
-    """
     return await cypher_manager.call(question)
 
 
 def _handle_agent_error(error: Exception, agent_name: str) -> dict[str, Any]:
-    """
-    Convert agent exception to error result dict.
-
-    Args:
-        error: The exception that occurred
-        agent_name: Name of the agent that failed
-
-    Returns:
-        Error result dictionary
-    """
     logger.error(f"{agent_name} failed: {error}")
     return {
         "answer": f"{agent_name} encountered an error.",
@@ -304,7 +280,6 @@ def _calculate_combined_confidence(
 def _format_combined_answer(
     mongodb_result: dict[str, Any], cypher_result: dict[str, Any]
 ) -> str:
-    """Format combined answer from both agents"""
     mongodb_answer = mongodb_result.get("answer", "")
     cypher_answer = cypher_result.get("answer", "")
     return f"{mongodb_answer}\n\nGraph Analysis: {cypher_answer}".strip()
@@ -313,7 +288,6 @@ def _format_combined_answer(
 def _format_combined_reasoning(
     mongodb_result: dict[str, Any], cypher_result: dict[str, Any]
 ) -> str:
-    """Format combined reasoning from both agents"""
     mongodb_reasoning = mongodb_result.get("reasoning", "")
     cypher_reasoning = cypher_result.get("reasoning", "")
     return f"MongoDB Agent: {mongodb_reasoning}\nCypher Query Agent: {cypher_reasoning}"
@@ -322,16 +296,6 @@ def _format_combined_reasoning(
 def _combine_agent_results(
     mongodb_result: dict[str, Any], cypher_result: dict[str, Any]
 ) -> dict[str, Any]:
-    """
-    Combine results from MongoDB and Cypher agents into single response.
-
-    Args:
-        mongodb_result: MongoDB agent result dict
-        cypher_result: Cypher agent result dict
-
-    Returns:
-        Combined result dictionary
-    """
     combined_confidence = _calculate_combined_confidence(mongodb_result, cypher_result)
     combined_answer = _format_combined_answer(mongodb_result, cypher_result)
     combined_reasoning = _format_combined_reasoning(mongodb_result, cypher_result)
@@ -347,16 +311,6 @@ def _combine_agent_results(
 
 
 async def _run_agents_parallel(question: str) -> dict[str, dict[str, Any]]:
-    """
-    Run both agents in parallel and return their results.
-
-    Args:
-        question: User question to answer
-
-    Returns:
-        Dictionary with keys 'mongodb' and 'cypher' containing result dictionaries
-    """
-    # Define agents to run with their display names
     agent_configs = {
         "mongodb": ("MongoDB agent", call_mongodb_agent),
         "cypher": ("Cypher agent", call_cypher_query_agent),
