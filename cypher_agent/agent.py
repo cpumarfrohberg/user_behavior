@@ -1,5 +1,3 @@
-"""Main agent class that executes Cypher queries"""
-
 import json
 import logging
 import re
@@ -78,8 +76,6 @@ async def track_tool_calls(ctx: Any, event: Any) -> None:
 
 
 class CypherQueryAgent:
-    """Cypher Query Agent that executes graph database queries"""
-
     def __init__(self, config: CypherAgentConfig):
         self.config = config
         self.agent = None
@@ -87,8 +83,6 @@ class CypherQueryAgent:
         self.schema = None
 
     def initialize(self) -> None:
-        """Initialize Neo4j connection, get schema, and create agent"""
-        # Connect to Neo4j
         logger.info("Connecting to Neo4j...")
         initialize_neo4j_driver(
             uri=self.config.neo4j_uri,
@@ -235,15 +229,6 @@ class CypherQueryAgent:
         return []
 
     async def query(self, question: str) -> CypherAgentResult:
-        """
-        Run agent query and return result with answer and tool calls
-
-        Args:
-            question: User question to answer
-
-        Returns:
-            CypherAgentResult - Contains answer and tool calls
-        """
         self._reset_and_verify_counters()
 
         if self.agent is None:
@@ -283,7 +268,6 @@ class CypherQueryAgent:
                         f"Filtered {len(answer.sources_used) - len(filtered_sources)} invalid sources. "
                         f"Original: {answer.sources_used}, Filtered: {filtered_sources}"
                     )
-                    # Create new CypherAnswer with filtered sources
                     answer = CypherAnswer(
                         answer=answer.answer,
                         confidence=answer.confidence,
