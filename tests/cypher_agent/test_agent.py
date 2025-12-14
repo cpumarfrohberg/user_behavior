@@ -17,6 +17,19 @@ TEST_INPUT_TOKENS = 100
 TEST_OUTPUT_TOKENS = 50
 TEST_TOTAL_TOKENS = TEST_INPUT_TOKENS + TEST_OUTPUT_TOKENS
 TEST_ZERO_TOKENS = 0
+TEST_CONFIDENCE_MOCK = 0.8
+TEST_QUESTION_ID_1 = "question_123"
+TEST_QUESTION_ID_2 = "question_456"
+TEST_NODE_ID_1 = "node_1"
+TEST_NODE_ID_2 = "node_456"
+TEST_NODE_ID_3 = "node_789"
+TEST_TAG_SURVEYS = "surveys"
+TEST_TAG_RESEARCH = "research"
+TEST_TAG_USER_BEHAVIOR = "user-behavior"
+TEST_TAG_CONVERSION_RATE = "conversion-rate"
+TEST_PLAIN_NUMBER_1 = "123"
+TEST_PLAIN_NUMBER_2 = "456"
+TEST_PLAIN_STRING = "plain_string"
 
 
 @pytest.fixture
@@ -64,8 +77,6 @@ def patched_agent(cypher_config, mock_neo4j_schema, mock_agent_instance):
 
 
 class TestCypherQueryAgent:
-    """Test CypherQueryAgent class"""
-
     def test_initialization(self, patched_agent, cypher_config, mock_neo4j_schema):
         """Test agent initialization"""
         agent, mocks = patched_agent
@@ -161,3 +172,115 @@ class TestCypherQueryAgent:
         assert result.token_usage.input_tokens == input_tokens
         assert result.token_usage.output_tokens == output_tokens
         assert result.token_usage.total_tokens == expected_total
+
+
+@pytest.mark.parametrize(
+    "sources,expected",
+    [
+        (
+            [TEST_QUESTION_ID_1, TEST_QUESTION_ID_2],
+            [TEST_QUESTION_ID_1, TEST_QUESTION_ID_2],
+        ),
+        ([TEST_NODE_ID_1, TEST_NODE_ID_3], [TEST_NODE_ID_1, TEST_NODE_ID_3]),
+        ([TEST_QUESTION_ID_1, TEST_NODE_ID_2], [TEST_QUESTION_ID_1, TEST_NODE_ID_2]),
+        ([TEST_QUESTION_ID_1, TEST_TAG_SURVEYS], [TEST_QUESTION_ID_1]),
+        (
+            [TEST_QUESTION_ID_1, TEST_TAG_RESEARCH, TEST_TAG_CONVERSION_RATE],
+            [TEST_QUESTION_ID_1],
+        ),
+        ([TEST_TAG_SURVEYS, TEST_TAG_RESEARCH], []),
+        (
+            [TEST_QUESTION_ID_1, TEST_TAG_USER_BEHAVIOR, TEST_NODE_ID_2],
+            [TEST_QUESTION_ID_1, TEST_NODE_ID_2],
+        ),
+        ([], []),
+        ([TEST_PLAIN_NUMBER_1, TEST_PLAIN_NUMBER_2], []),
+        ([TEST_PLAIN_STRING], []),
+    ],
+    ids=[
+        "valid_questions",
+        "valid_nodes",
+        "mixed_valid",
+        "one_tag",
+        "multiple_tags",
+        "all_tags",
+        "mixed_valid_invalid",
+        "empty",
+        "plain_numbers",
+        "plain_string",
+    ],
+)
+def test_filter_valid_sources(cypher_config, sources, expected):
+    """Test that _filter_valid_sources filters out invalid sources"""
+    agent = CypherQueryAgent(cypher_config)
+    result = agent._filter_valid_sources(sources)
+    assert result == expected
+
+
+def test_extract_sources_with_filtering(
+    cypher_config, mock_neo4j_schema, mock_agent_instance
+):
+    """Test that _extract_sources_from_result filters invalid sources"""
+    with (
+        patch("cypher_agent.agent.initialize_neo4j_driver"),
+        patch("cypher_agent.agent.get_neo4j_schema") as mock_get_schema,
+        patch("cypher_agent.agent.Agent") as mock_agent_class,
+    ):
+        mock_get_schema.return_value = mock_neo4j_schema
+        mock_agent_class.return_value = mock_agent_instance
+
+        agent = CypherQueryAgent(cypher_config)
+        agent.initialize()
+
+        # Create mock result with mixed valid/invalid sources
+        mock_result = MagicMock()
+        mock_answer = CypherAnswer(
+            answer="Test answer",
+            confidence=TEST_CONFIDENCE_MOCK,
+            sources_used=[
+                TEST_QUESTION_ID_1,
+                TEST_TAG_SURVEYS,
+                TEST_TAG_RESEARCH,
+                TEST_NODE_ID_2,
+            ],
+            reasoning="Test reasoning",
+            query_used="MATCH (n) RETURN n",
+        )
+        mock_result.output = mock_answer
+
+        # Extract sources should filter out tag names
+        sources = agent._extract_sources_from_result(mock_result)
+
+        assert sources == [TEST_QUESTION_ID_1, TEST_NODE_ID_2]
+        assert TEST_TAG_SURVEYS not in sources
+        assert TEST_TAG_RESEARCH not in sources
+
+
+def test_extract_sources_all_invalid(
+    cypher_config, mock_neo4j_schema, mock_agent_instance
+):
+    """Test that _extract_sources_from_result returns empty list when all sources are invalid"""
+    with (
+        patch("cypher_agent.agent.initialize_neo4j_driver"),
+        patch("cypher_agent.agent.get_neo4j_schema") as mock_get_schema,
+        patch("cypher_agent.agent.Agent") as mock_agent_class,
+    ):
+        mock_get_schema.return_value = mock_neo4j_schema
+        mock_agent_class.return_value = mock_agent_instance
+
+        agent = CypherQueryAgent(cypher_config)
+        agent.initialize()
+
+        mock_result = MagicMock()
+        mock_answer = CypherAnswer(
+            answer="Test answer",
+            confidence=TEST_CONFIDENCE_MOCK,
+            sources_used=[TEST_TAG_SURVEYS, TEST_TAG_RESEARCH, TEST_TAG_USER_BEHAVIOR],
+            reasoning="Test reasoning",
+            query_used="MATCH (n) RETURN n",
+        )
+        mock_result.output = mock_answer
+
+        sources = agent._extract_sources_from_result(mock_result)
+
+        assert sources == []

@@ -20,3 +20,4 @@ class CypherAgentConfig:
     neo4j_uri: str = NEO4J_URI
     neo4j_user: str = NEO4J_USER
     neo4j_password: str = NEO4J_PASSWORD
+    max_tool_calls: int = 5  # Maximum number of tool calls allowed per query

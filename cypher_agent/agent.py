@@ -1,8 +1,8 @@
-# Cypher Query Agent class for graph database queries
 """Main agent class that executes Cypher queries"""
 
 import json
 import logging
+import re
 from typing import Any, List
 
 from pydantic_ai import Agent, ModelSettings
@@ -22,6 +22,8 @@ from cypher_agent.tools import (
     execute_cypher_query,
     get_neo4j_schema,
     initialize_neo4j_driver,
+    reset_tool_call_count,
+    set_max_tool_calls,
 )
 from monitoring.agent_logging import log_agent_run_async
 
@@ -92,12 +94,14 @@ class CypherQueryAgent:
             password=self.config.neo4j_password,
         )
 
+        set_max_tool_calls(self.config.max_tool_calls)
+        logger.info(f"Tool call limit set to {self.config.max_tool_calls}")
+
         # Get schema and cache it
         logger.info("Retrieving Neo4j schema...")
         self.schema = self._get_schema()
         logger.info("Neo4j schema retrieved successfully")
 
-        # Get base instructions and inject schema
         base_instructions = InstructionsConfig.INSTRUCTIONS[
             InstructionType.CYPHER_QUERY_AGENT
         ]
@@ -105,14 +109,12 @@ class CypherQueryAgent:
             base_instructions, self.schema
         )
 
-        # Create OpenAI model
         model = OpenAIChatModel(
             model_name=self.config.openai_model,
             provider=OpenAIProvider(),
         )
         logger.info(f"Using OpenAI model: {self.config.openai_model}")
 
-        # Create agent
         self.agent = Agent(
             name="cypher_query_agent",
             model=model,
@@ -125,12 +127,9 @@ class CypherQueryAgent:
         logger.info("Cypher Query Agent initialized successfully")
 
     def _get_schema(self) -> str:
-        """Retrieve and format Neo4j schema"""
         return get_neo4j_schema()
 
     def _inject_schema_into_instructions(self, instructions: str, schema: str) -> str:
-        """Inject schema into instructions template"""
-        # Replace {schema} placeholder with actual schema
         if "{schema}" in instructions:
             return instructions.replace("{schema}", schema)
         else:
@@ -164,6 +163,23 @@ class CypherQueryAgent:
             )
             return TokenUsage(input_tokens=0, output_tokens=0, total_tokens=0)
 
+    def _filter_valid_sources(self, sources: list[str]) -> list[str]:
+        """Filter sources to only include valid node/question identifiers."""
+        question_pattern = re.compile(r"^question_\d+$")
+        node_pattern = re.compile(r"^node_\d+$")
+
+        valid_sources = []
+        for source in sources:
+            if isinstance(source, str):
+                if question_pattern.match(source) or node_pattern.match(source):
+                    valid_sources.append(source)
+                else:
+                    logger.debug(
+                        f"Filtered out invalid source: {source} (not a valid node/question ID)"
+                    )
+
+        return valid_sources
+
     def _extract_sources_from_result(self, result: Any) -> list[str]:
         """Extract source node IDs from result output if available."""
         if result is None:
@@ -172,10 +188,20 @@ class CypherQueryAgent:
         try:
             output = result.output
             if isinstance(output, CypherAnswer) and output.sources_used:
+                raw_sources = output.sources_used
+                # Filter to only valid node/question IDs
+                valid_sources = self._filter_valid_sources(raw_sources)
+
+                if len(valid_sources) < len(raw_sources):
+                    logger.warning(
+                        f"Filtered {len(raw_sources) - len(valid_sources)} invalid sources. "
+                        f"Original: {raw_sources}, Filtered: {valid_sources}"
+                    )
+
                 logger.info(
-                    f"Extracted {len(output.sources_used)} sources from result output"
+                    f"Extracted {len(valid_sources)} valid sources from {len(raw_sources)} total"
                 )
-                return output.sources_used
+                return valid_sources
         except (AttributeError, Exception) as source_error:
             logger.debug(f"Could not extract sources from result: {source_error}.")
 
@@ -192,6 +218,7 @@ class CypherQueryAgent:
             CypherAgentResult - Contains answer and tool calls
         """
         self._reset_tool_calls()
+        reset_tool_call_count()
 
         if self.agent is None:
             raise RuntimeError("Agent not initialized. Call initialize() first.")
@@ -216,7 +243,6 @@ class CypherQueryAgent:
                 f"✅ Cypher Query Agent completed query. Made {len(_tool_calls)} tool calls."
             )
 
-            # Log agent run asynchronously
             try:
                 log_agent_run_async(self.agent, result, question)
             except Exception as e:

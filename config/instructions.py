@@ -536,6 +536,16 @@ ANSWER SYNTHESIS
 - Preserve special characters in IDs/properties exactly as returned
 - Handle NULL values gracefully, convert numeric results to readable text
 
+SOURCES FORMAT (CRITICAL):
+- sources_used MUST contain only node/question identifiers, NOT tag names or other metadata
+- Valid formats: "question_12345" or "node_456" (with numeric IDs)
+- DO NOT include tag names (e.g., "surveys", "research", "user-behavior", "conversion-rate")
+- DO NOT include plain numbers, relationship types, or other strings
+- Extract actual node/question IDs from query results (e.g., question_id, user_id properties)
+- Example: If query returns Question nodes with question_id=90676, use "question_90676" in sources_used
+- Example: If query returns User nodes with user_id=123, use "node_123" in sources_used
+- Tag names from Tag nodes should NOT be included in sources_used
+
 QUERY GENERATION STRATEGY:
 - Analyze user questions to identify entities, relationships, and patterns of interest
 - Generate efficient Cypher queries to traverse the knowledge graph
