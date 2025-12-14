@@ -273,8 +273,6 @@ user_behavior/
 - Local LLM support
 - Structured routing log enhancement
 
-See `IMPLEMENTATION_PLAN.md` for detailed status and roadmap.
-
 ## Development
 
 ### Pre-commit Hooks
