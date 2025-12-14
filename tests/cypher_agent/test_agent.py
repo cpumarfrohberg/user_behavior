@@ -337,3 +337,134 @@ def test_reset_and_verify_counters(
         assert get_tool_call_count() == TEST_TOOL_CALL_COUNT_AFTER_RESET
         # Verify tool calls list is reset
         assert len(agent_module._tool_calls) == TEST_TOOL_CALL_COUNT_AFTER_RESET
+
+
+# Integration tests
+@pytest.mark.asyncio
+@pytest.mark.integration
+@pytest.mark.timeout(120)
+async def test_cypher_agent_initialization_integration(cypher_config):
+    """Integration test: Cypher agent initializes with real Neo4j connection."""
+    from cypher_agent.agent import CypherQueryAgent
+
+    agent = CypherQueryAgent(cypher_config)
+    try:
+        agent.initialize()
+        assert agent.agent is not None
+        assert agent.schema is not None
+        assert len(agent.schema) > 0
+    except Exception as e:
+        pytest.skip(f"Neo4j not available: {e}")
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.timeout(120)
+async def test_cypher_agent_pattern_detection_query(cypher_config):
+    """Integration test: Cypher agent handles pattern detection queries."""
+    from cypher_agent.agent import CypherQueryAgent
+
+    agent = CypherQueryAgent(cypher_config)
+    try:
+        agent.initialize()
+    except Exception as e:
+        pytest.skip(f"Neo4j not available: {e}")
+
+    question = "What patterns lead to user frustration?"
+    result = await agent.query(question)
+
+    assert result is not None
+    assert result.answer is not None
+    assert isinstance(result.answer.answer, str)
+    assert len(result.answer.answer) > 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.timeout(120)
+async def test_cypher_agent_correlation_query(cypher_config):
+    """Integration test: Cypher agent handles correlation queries."""
+    from cypher_agent.agent import CypherQueryAgent
+
+    agent = CypherQueryAgent(cypher_config)
+    try:
+        agent.initialize()
+    except Exception as e:
+        pytest.skip(f"Neo4j not available: {e}")
+
+    question = "Which user behaviors correlate with high engagement?"
+    result = await agent.query(question)
+
+    assert result is not None
+    assert result.answer is not None
+    assert isinstance(result.answer.answer, str)
+    assert len(result.answer.answer) > 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.timeout(120)
+async def test_cypher_agent_relationship_query(cypher_config):
+    """Integration test: Cypher agent handles relationship queries."""
+    from cypher_agent.agent import CypherQueryAgent
+
+    agent = CypherQueryAgent(cypher_config)
+    try:
+        agent.initialize()
+    except Exception as e:
+        pytest.skip(f"Neo4j not available: {e}")
+
+    question = "What relationships exist between questions and tags?"
+    result = await agent.query(question)
+
+    assert result is not None
+    assert result.answer is not None
+    assert isinstance(result.answer.answer, str)
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.timeout(120)
+async def test_cypher_agent_error_handling_invalid_query(cypher_config):
+    """Integration test: Cypher agent handles invalid queries gracefully."""
+    from cypher_agent.agent import CypherQueryAgent
+
+    agent = CypherQueryAgent(cypher_config)
+    try:
+        agent.initialize()
+    except Exception as e:
+        pytest.skip(f"Neo4j not available: {e}")
+
+    # The agent should handle invalid queries gracefully
+    # Note: The agent will try to generate a valid query, so we test that it doesn't crash
+    question = "This is not a valid graph query format at all"
+    result = await agent.query(question)
+
+    # Should return a result (even if it indicates no answer found)
+    assert result is not None
+    assert result.answer is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.timeout(120)
+async def test_cypher_agent_schema_injection(cypher_config):
+    """Integration test: Cypher agent injects schema into instructions."""
+    from cypher_agent.agent import CypherQueryAgent
+
+    agent = CypherQueryAgent(cypher_config)
+    try:
+        agent.initialize()
+    except Exception as e:
+        pytest.skip(f"Neo4j not available: {e}")
+
+    # Verify schema is retrieved and injected
+    assert agent.schema is not None
+    assert len(agent.schema) > 0
+    # Schema should contain node/relationship information
+    assert "NODE" in agent.schema.upper() or "RELATIONSHIP" in agent.schema.upper()

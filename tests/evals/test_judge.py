@@ -3,7 +3,7 @@
 import pytest
 
 from evals.judge import evaluate_answer
-from mongodb_agent.models import SearchAnswer
+from mongodb_agent.models import SearchAnswer, SearchEntry
 
 # Test constants
 TEST_QUESTION = "What are common user frustration patterns?"
@@ -30,6 +30,16 @@ def test_answer():
         confidence=TEST_CONFIDENCE,
         sources_used=TEST_SOURCES,
         reasoning=TEST_REASONING,
+        searches=[
+            SearchEntry(
+                query="user frustration patterns",
+                tags=[],
+                num_results=2,
+                top_scores=[0.9, 0.85],
+                used_ids=TEST_SOURCES,
+                eval="relevant_count=2, top_scores=[0.9, 0.85], decision=STOP",
+            )
+        ],
     )
 
 
