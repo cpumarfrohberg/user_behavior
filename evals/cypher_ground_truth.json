@@ -1,1 +1,93 @@
-[]
+[
+  {
+    "question": "Which user has asked the most questions?",
+    "expected_sources": [
+      "question_147363",
+      "question_148884",
+      "question_151250",
+      "question_147391",
+      "question_147215"
+    ],
+    "query_type": "aggregation"
+  },
+  {
+    "question": "What questions are tagged with user-behavior?",
+    "expected_sources": [
+      "question_34126",
+      "question_41291",
+      "question_24140",
+      "question_67729",
+      "question_95408",
+      "question_30906",
+      "question_108830",
+      "question_87204",
+      "question_90656",
+      "question_131173"
+    ],
+    "query_type": "relationship_traversal"
+  },
+  {
+    "question": "What questions have accepted answers?",
+    "expected_sources": [
+      "question_39413",
+      "question_105823",
+      "question_35936",
+      "question_105899",
+      "question_99256",
+      "question_78805",
+      "question_38154",
+      "question_105143",
+      "question_57132",
+      "question_54537"
+    ],
+    "query_type": "pattern_detection"
+  },
+  {
+    "question": "Which questions have the most answers?",
+    "expected_sources": [
+      "question_57549",
+      "question_34126",
+      "question_38154",
+      "question_122360",
+      "question_90812",
+      "question_76019",
+      "question_33750",
+      "question_60287",
+      "question_54537",
+      "question_105899"
+    ],
+    "query_type": "aggregation"
+  },
+  {
+    "question": "Which users have both asked questions and provided answers?",
+    "expected_sources": [
+      "question_105823",
+      "question_72568",
+      "question_68412",
+      "question_69720",
+      "question_68295",
+      "question_74174",
+      "question_70374",
+      "question_70235",
+      "question_64955",
+      "question_70168"
+    ],
+    "query_type": "pattern_detection"
+  },
+  {
+    "question": "What questions mention 'user' in their title or body?",
+    "expected_sources": [
+      "question_34126",
+      "question_39413",
+      "question_105823",
+      "question_35936",
+      "question_105899",
+      "question_78805",
+      "question_38154",
+      "question_105143",
+      "question_57132",
+      "question_54537"
+    ],
+    "query_type": "text_search"
+  }
+]
