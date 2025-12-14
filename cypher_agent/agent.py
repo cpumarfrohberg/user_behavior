@@ -25,6 +25,7 @@ from cypher_agent.tools import (
     reset_tool_call_count,
     set_max_query_results,
     set_max_tool_calls,
+    set_max_tool_result_size,
 )
 from monitoring.agent_logging import log_agent_run_async
 
@@ -100,6 +101,11 @@ class CypherQueryAgent:
 
         set_max_query_results(self.config.max_query_results)
         logger.info(f"Query result limit set to {self.config.max_query_results}")
+
+        set_max_tool_result_size(self.config.max_tool_result_size)
+        logger.info(
+            f"Tool result size limit set to {self.config.max_tool_result_size} chars"
+        )
 
         # Get schema and cache it
         logger.info("Retrieving Neo4j schema...")

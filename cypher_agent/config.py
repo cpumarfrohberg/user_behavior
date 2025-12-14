@@ -27,3 +27,4 @@ class CypherAgentConfig:
         5000  # Maximum schema size in characters (prevents context overflow)
     )
     max_query_results: int = 100  # Maximum number of records to return from a query
+    max_tool_result_size: int = 50000  # Maximum size of tool call result in characters (prevents token overflow)

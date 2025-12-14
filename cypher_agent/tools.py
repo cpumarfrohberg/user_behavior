@@ -1,6 +1,7 @@
 # Tool functions for Cypher Query Agent
 """Neo4j query execution tool function that agent can call"""
 
+import json
 import logging
 import re
 import threading
@@ -31,6 +32,7 @@ _counter_lock = threading.Lock()
 
 # Global state for query result limiting
 _max_query_results = 100  # Default max results per query
+_max_tool_result_size = 50000  # Default max tool result size in characters
 
 
 def set_max_tool_calls(max_calls: int) -> None:
@@ -160,6 +162,13 @@ def set_max_query_results(max_results: int) -> None:
     global _max_query_results
     with _counter_lock:
         _max_query_results = max_results
+
+
+def set_max_tool_result_size(max_size: int) -> None:
+    """Set the maximum size of tool call results in characters."""
+    global _max_tool_result_size
+    with _counter_lock:
+        _max_tool_result_size = max_size
 
 
 def get_neo4j_schema(max_size: int | None = None) -> str:
@@ -476,11 +485,42 @@ def execute_cypher_query(query: str) -> dict[str, Any]:
                 f"Query executed successfully. Returned {len(records)} records."
             )
 
+            # Check result size to prevent token overflow
+            global _max_tool_result_size
+            result_json = json.dumps(records)
+            result_size = len(result_json)
+            size_truncated = False
+
+            if result_size > _max_tool_result_size:
+                logger.warning(
+                    f"Result size ({result_size} chars) exceeds limit ({_max_tool_result_size} chars). "
+                    f"Truncating to prevent token limit exceeded error."
+                )
+                # Truncate records to fit within size limit
+                # Estimate size per record and reduce accordingly
+                estimated_size_per_record = result_size / len(records) if records else 0
+                max_records_by_size = (
+                    int(_max_tool_result_size / estimated_size_per_record)
+                    if estimated_size_per_record > 0
+                    else len(records)
+                )
+
+                # Take the minimum of record count limit and size limit
+                final_max = min(max_results, max_records_by_size)
+                if len(records) > final_max:
+                    records = records[:final_max]
+                    size_truncated = True
+                    result_summary = (
+                        f"Results truncated to {final_max} records due to size limit. "
+                        f"Result size: {len(json.dumps(records))} chars."
+                    )
+                    logger.warning(result_summary)
+
             return {
                 "results": records,
                 "query": query,
                 "error": None,
-                "truncated": len(records) >= max_results,
+                "truncated": len(records) >= max_results or size_truncated,
                 "summary": result_summary,
             }
 

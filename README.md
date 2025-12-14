@@ -36,7 +36,8 @@ This system combines **document-based search** (MongoDB) and **graph-based analy
 - Python 3.11+
 - Docker and Docker Compose
 - OpenAI API key (for LLM agents)
-- MongoDB, Neo4j, PostgreSQL (via Docker Compose)
+- MongoDB, PostgreSQL (via Docker Compose)
+- Neo4j (external instance or local - configured via NEO4J_URI environment variable)
 
 ## Quick Start
 
@@ -130,11 +131,13 @@ Executes graph queries on Neo4j knowledge graph:
 - **Read-Only**: Validates queries to prevent write operations
 - **Query Validation**: Syntax and safety checks before execution
 - **Tool Call Limit**: Maximum 5 queries per question (prevents excessive API calls)
+- **Performance Optimizations**: Schema truncation, query result limiting, and tool result size limiting
 
 **Features:**
-- Automatic schema retrieval and injection
+- Automatic schema retrieval and injection (truncated to prevent context overflow)
 - Query validation (forbidden keywords, syntax checks)
 - Error handling for syntax errors and connection issues
+- Query result limiting (max 100 records) and tool result size limiting (max 50KB)
 
 ## CLI Usage (Testing Only)
 
@@ -155,11 +158,14 @@ uv run python cli.py ask "What causes user abandonment?" --verbose
 Evaluate agent performance using ground truth datasets:
 
 ```bash
-# Generate ground truth dataset
+# Generate ground truth dataset (MongoDB agent)
 uv run python cli.py evaluate --generate-ground-truth --samples 50
 
-# Run evaluation
+# Run evaluation (MongoDB agent)
 uv run python cli.py evaluate --ground-truth evals/ground_truth.json --max-questions 15
+
+# Evaluate Cypher agent
+uv run python cli.py evaluate-cypher-agent --max-samples 6 --verbose
 
 # With custom judge model
 uv run python cli.py evaluate --judge-model gpt-4o
@@ -253,17 +259,14 @@ user_behavior/
 
 ### ✅ Completed
 - Multi-agent architecture (Orchestrator, MongoDB, Cypher)
-- Tool call limits with hard stops
+- Tool call limits with hard stops (both agents)
 - Streaming support in Streamlit
 - Cost tracking and monitoring
-- Evaluation framework (MongoDB agent)
+- Evaluation framework (MongoDB and Cypher agents)
 - Parallel agent execution
 - Instruction optimizations
 - Orchestrator tools refactoring (DRY pattern)
-
-### ⏳ In Progress
-- Cypher agent tool call limits (Steps 5-7 remaining)
-- Cypher agent evaluation framework
+- Cypher agent optimizations (schema truncation, result limiting)
 
 ### 📋 Planned
 - Guardrails implementation
