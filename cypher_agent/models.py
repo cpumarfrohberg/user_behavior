@@ -1,11 +1,7 @@
-# Pydantic models for Cypher Query Agent
-"""Pydantic models for Cypher Query Agent system"""
-
 from pydantic import BaseModel, Field
 
 from mongodb_agent.models import TokenUsage
 
-# Constants for validation bounds
 MIN_CONFIDENCE = 0.0
 MAX_CONFIDENCE = 1.0
 
