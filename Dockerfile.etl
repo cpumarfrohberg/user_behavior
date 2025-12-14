@@ -8,11 +8,9 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Install dependencies
 COPY pyproject.toml uv.lock ./
 RUN pip install --no-cache-dir neo4j==5.14.1 pymongo retry python-dotenv
 
-# Copy necessary code
 COPY config/ ./config/
 COPY neo4j_etl/ ./neo4j_etl/
 

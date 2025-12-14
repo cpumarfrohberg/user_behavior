@@ -1,5 +1,3 @@
-"""Tests for Neo4j ETL validation functions"""
-
 import pytest
 
 from neo4j_etl.src.validate import (
@@ -13,7 +11,6 @@ from neo4j_etl.src.validate import (
     validate_user,
 )
 
-# Constants
 TEST_USER_ID = 123
 TEST_DISPLAY_NAME = "John Doe"
 TEST_REPUTATION = 1000
@@ -50,7 +47,6 @@ def base_user_data():
 
 @pytest.fixture
 def base_comment_data():
-    """Base comment data for testing"""
     return {
         "comment_id": TEST_COMMENT_ID,
         "body": TEST_BODY_SHORT,
@@ -60,7 +56,6 @@ def base_comment_data():
 
 @pytest.fixture
 def base_answer_data():
-    """Base answer data for testing"""
     return {
         "answer_id": TEST_ANSWER_ID,
         "body": TEST_ANSWER_BODY_SHORT,
@@ -71,7 +66,6 @@ def base_answer_data():
 
 @pytest.fixture
 def base_question_data():
-    """Base question data for testing"""
     return {
         "question_id": TEST_QUESTION_ID,
         "title": TEST_TITLE,
@@ -82,9 +76,7 @@ def base_question_data():
     }
 
 
-# validate_user tests
 def test_validate_user_valid(base_user_data):
-    """Test validate_user with valid data"""
     result = validate_user(base_user_data)
 
     assert result is not None
@@ -110,9 +102,7 @@ def test_validate_user_no_id(base_user_data, user_id_input):
     assert result is None
 
 
-# validate_comment tests
 def test_validate_comment_valid(base_comment_data):
-    """Test validate_comment with valid data"""
     result = validate_comment(base_comment_data)
 
     assert result is not None
@@ -122,7 +112,6 @@ def test_validate_comment_valid(base_comment_data):
 
 
 def test_validate_comment_no_id(base_comment_data):
-    """Test validate_comment returns None when comment_id is missing"""
     comment_data = base_comment_data.copy()
     comment_data.pop("comment_id")
 
@@ -131,7 +120,6 @@ def test_validate_comment_no_id(base_comment_data):
 
 
 def test_validate_comment_body_truncation(base_comment_data):
-    """Test validate_comment truncates long body to max length"""
     comment_data = base_comment_data.copy()
     comment_data["body"] = TEST_BODY_LONG
 
@@ -142,9 +130,7 @@ def test_validate_comment_body_truncation(base_comment_data):
     assert result["body"] == TEST_BODY_LONG[:COMMENT_BODY_MAX_LENGTH]
 
 
-# validate_answer tests
 def test_validate_answer_valid(base_answer_data):
-    """Test validate_answer with valid data"""
     result = validate_answer(base_answer_data)
 
     assert result is not None
@@ -155,7 +141,6 @@ def test_validate_answer_valid(base_answer_data):
 
 
 def test_validate_answer_no_id(base_answer_data):
-    """Test validate_answer returns None when answer_id is missing"""
     answer_data = base_answer_data.copy()
     answer_data.pop("answer_id")
 
@@ -164,7 +149,6 @@ def test_validate_answer_no_id(base_answer_data):
 
 
 def test_validate_answer_body_truncation(base_answer_data):
-    """Test validate_answer truncates long body to max length"""
     answer_data = base_answer_data.copy()
     answer_data["body"] = TEST_ANSWER_BODY_LONG
 
@@ -175,9 +159,7 @@ def test_validate_answer_body_truncation(base_answer_data):
     assert result["body"] == TEST_ANSWER_BODY_LONG[:ANSWER_BODY_MAX_LENGTH]
 
 
-# validate_question tests
 def test_validate_question_valid(base_question_data):
-    """Test validate_question with valid data"""
     result = validate_question(base_question_data)
 
     assert result is not None
@@ -190,7 +172,6 @@ def test_validate_question_valid(base_question_data):
 
 
 def test_validate_question_no_id(base_question_data):
-    """Test validate_question returns None when question_id is missing"""
     question_data = base_question_data.copy()
     question_data.pop("question_id")
 
@@ -199,7 +180,6 @@ def test_validate_question_no_id(base_question_data):
 
 
 def test_validate_question_body_truncation(base_question_data):
-    """Test validate_question truncates long body to max length"""
     question_data = base_question_data.copy()
     question_data["body"] = TEST_QUESTION_BODY_LONG
 
@@ -210,7 +190,6 @@ def test_validate_question_body_truncation(base_question_data):
     assert result["body"] == TEST_QUESTION_BODY_LONG[:QUESTION_BODY_MAX_LENGTH]
 
 
-# validate_tag tests
 @pytest.mark.parametrize(
     "tag_input,expected",
     [
