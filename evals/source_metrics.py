@@ -1,5 +1,3 @@
-"""Source metrics calculation for evaluation"""
-
 from typing import Sequence
 
 
