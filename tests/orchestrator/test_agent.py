@@ -163,6 +163,8 @@ async def test_orchestrator_has_confidence(initialized_orchestrator):
 @slow_integration
 async def test_orchestrator_routes_to_cypher_agent(initialized_orchestrator):
     """Test orchestrator routes graph queries to Cypher agent."""
+    from cypher_agent.tools import reset_tool_call_count
+
     # Questions that should trigger Cypher agent
     graph_questions = [
         "What patterns lead to user frustration?",
@@ -171,6 +173,8 @@ async def test_orchestrator_routes_to_cypher_agent(initialized_orchestrator):
     ]
 
     for question in graph_questions:
+        # Reset counter before each query to ensure clean state
+        reset_tool_call_count()
         result = await initialized_orchestrator.query(question)
         _assert_valid_orchestrator_agent_result(result)
         # Should use Cypher agent (may also use MongoDB agent)
