@@ -1,9 +1,5 @@
-# Pydantic models for MongoDB Agent
-"""Pydantic models for pydantic-ai-based MongoDB Agent system"""
-
 from pydantic import BaseModel, Field
 
-# Constants for validation bounds
 MIN_CONFIDENCE = 0.0
 MAX_CONFIDENCE = 1.0
 MIN_SCORE = 0.0
@@ -67,8 +63,6 @@ class SearchAnswer(BaseModel):
 
 
 class TokenUsage(BaseModel):
-    """Token usage information from LLM API calls"""
-
     input_tokens: int = Field(
         ..., ge=MIN_TOKEN_COUNT, description="Number of input tokens used"
     )
@@ -79,8 +73,6 @@ class TokenUsage(BaseModel):
 
 
 class SearchAgentResult(BaseModel):
-    """Result from MongoDB search agent query"""
-
     answer: SearchAnswer = Field(..., description="The answer from the agent")
     tool_calls: list[dict] = Field(
         ..., description="List of tool calls made during the query"
@@ -91,8 +83,6 @@ class SearchAgentResult(BaseModel):
 
 
 class JudgeEvaluation(BaseModel):
-    """Judge evaluation output for answer quality assessment"""
-
     overall_score: float = Field(
         ...,
         ge=MIN_SCORE,
@@ -121,7 +111,5 @@ class JudgeEvaluation(BaseModel):
 
 
 class JudgeResult(BaseModel):
-    """Result from judge evaluation including evaluation and usage"""
-
     evaluation: JudgeEvaluation = Field(..., description="Judge evaluation scores")
     usage: TokenUsage = Field(..., description="Token usage information")
