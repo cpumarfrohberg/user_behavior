@@ -33,9 +33,12 @@ This system combines **document-based search** (MongoDB) and **graph-based analy
 
 - Python 3.11+
 - Docker and Docker Compose
-- OpenAI API key (for LLM agents)
+- API Keys:
+  - OpenAI API key (for LLM agents)
+  - StackExchange API key (for data collection)
+  - Neo4j cloud instance credentials (URI, username, password)
 - MongoDB, PostgreSQL (via Docker Compose)
-- Neo4j (external instance or local - configured via NEO4J_URI environment variable)
+- Neo4j cloud instance (configured via NEO4J_URI environment variable)
 
 ## Quick Start
 
@@ -49,7 +52,7 @@ uv sync
 ### 2. Start Services
 
 ```bash
-# Start all services (MongoDB, Neo4j, PostgreSQL)
+# Start local services (MongoDB, PostgreSQL)
 docker-compose up -d
 
 # Verify services are running
@@ -66,10 +69,10 @@ MONGO_URI=mongodb://localhost:27017/
 MONGO_DB_NAME=stackexchange
 MONGO_COLLECTION_NAME=questions
 
-# Neo4j
-NEO4J_URI=bolt://localhost:7687
+# Neo4j (cloud instance)
+NEO4J_URI=bolt://your-neo4j-instance.neo4j.io:7687
 NEO4J_USER=neo4j
-NEO4J_PASSWORD=your_secure_password
+NEO4J_PASSWORD=your_neo4j_password
 
 # PostgreSQL (for monitoring)
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/user_behavior_monitoring
@@ -79,8 +82,10 @@ OPENAI_API_KEY=your_openai_api_key
 OPENAI_RAG_MODEL=gpt-4o-mini  # or gpt-4o, gpt-3.5-turbo
 OPENAI_JUDGE_MODEL=gpt-4o-mini
 
+# StackExchange (required for data collection)
+STACKEXCHANGE_API_KEY=your_stackexchange_api_key
+
 # Optional
-STACKEXCHANGE_API_KEY=your_key  # For data collection
 LOG_LEVEL=INFO
 ```
 
