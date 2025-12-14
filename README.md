@@ -27,9 +27,7 @@ This system combines **document-based search** (MongoDB) and **graph-based analy
 - **Evaluation Framework**: Automated evaluation with judge models
 
 ### Interfaces
-- **Streamlit UI**: Interactive web interface with streaming responses (primary interface)
-- **CLI**: Command-line interface for testing and evaluation (may be removed in published version)
-- **Monitoring Dashboard**: Cost tracking and agent performance metrics
+- **Streamlit UI**: Interactive web interface with streaming responses and monitoring dashboard
 
 ## Prerequisites
 
@@ -88,7 +86,6 @@ LOG_LEVEL=INFO
 
 ### 4. Run the Application
 
-**Streamlit UI:**
 ```bash
 streamlit run streamlit_app.py
 ```
@@ -139,75 +136,6 @@ Executes graph queries on Neo4j knowledge graph:
 - Error handling for syntax errors and connection issues
 - Query result limiting (max 100 records) and tool result size limiting (max 50KB)
 
-## CLI Usage (Testing Only)
-
-> **Note**: The CLI is primarily for testing and evaluation purposes. It may be removed in the published version. Use the Streamlit UI for production queries.
-
-### Ask Questions
-
-```bash
-# Basic usage
-uv run python cli.py ask "How do users behave when confused?"
-
-# Verbose output (shows tool calls, token usage)
-uv run python cli.py ask "What causes user abandonment?" --verbose
-```
-
-### Evaluation
-
-Evaluate agent performance using ground truth datasets:
-
-```bash
-# Generate ground truth dataset (MongoDB agent)
-uv run python cli.py evaluate --generate-ground-truth --samples 50
-
-# Run evaluation (MongoDB agent)
-uv run python cli.py evaluate --ground-truth evals/ground_truth.json --max-questions 15
-
-# Evaluate Cypher agent
-uv run python cli.py evaluate-cypher-agent --max-samples 6 --verbose
-
-# With custom judge model
-uv run python cli.py evaluate --judge-model gpt-4o
-```
-
-### Chunking Parameter Optimization
-
-Optimize RAG retrieval parameters:
-
-```bash
-# Generate ground truth
-uv run python cli.py ask generate-ground-truth --samples 50
-
-# Evaluate chunking parameters
-uv run python cli.py ask evaluate-chunking --samples 20
-
-# Custom parameter ranges
-uv run python cli.py ask evaluate-chunking \
-  --chunk-sizes "200,300,500,1000" \
-  --overlaps "0,15,50" \
-  --top-ks "5,10"
-```
-
-## Streamlit UI
-
-The Streamlit interface provides an interactive way to query the system:
-
-**Features:**
-- Real-time streaming responses
-- Tool call visualization
-- Confidence scores and reasoning display
-- Source tracking
-- Cost and performance monitoring
-- Agent selection visualization
-
-**Usage:**
-```bash
-streamlit run streamlit_app.py
-```
-
-Then open `http://localhost:8501` in your browser.
-
 ## Monitoring & Cost Tracking
 
 The system tracks agent performance and costs:
@@ -218,8 +146,8 @@ The system tracks agent performance and costs:
 - **Dashboard**: View recent logs and cost statistics in Streamlit UI
 
 **Access Monitoring:**
-- Streamlit UI: Navigate to "Monitoring" page
-- Database: Connect to PostgreSQL at `localhost:5432`
+- Navigate to "Monitoring" page in Streamlit UI
+- Connect to PostgreSQL at `localhost:5432` for direct database access
 
 ## Testing
 
@@ -251,8 +179,8 @@ user_behavior/
 ├── stream_stackexchange/  # StackExchange data collection
 ├── neo4j_etl/             # ETL pipeline for Neo4j
 ├── tests/                 # Test suite
-├── streamlit_app.py       # Streamlit UI (primary interface)
-└── cli.py                 # CLI interface (testing only, may be removed)
+├── streamlit_app.py       # Streamlit UI
+└── cli.py                 # CLI interface
 ```
 
 ## Implementation Status
