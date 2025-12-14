@@ -20,6 +20,7 @@ from cypher_agent.models import (
 from cypher_agent.tools import (
     execute_cypher_query,
     get_neo4j_schema,
+    get_tool_call_count,
     initialize_neo4j_driver,
     reset_tool_call_count,
     set_max_tool_calls,
@@ -137,11 +138,28 @@ class CypherQueryAgent:
             )
             return instructions + f"\n\n{schema}"
 
-    def _reset_tool_calls(self) -> None:
-        """Reset tool calls tracking (called at start of each query)"""
+    def _reset_and_verify_counters(self) -> None:
+        """Reset tool calls and counter, verify counter is properly reset."""
         global _tool_calls
         _tool_calls = []
-        logger.info("Tool calls tracking reset")
+
+        reset_tool_call_count()
+        # Verify counter is reset to 0
+        initial_count = get_tool_call_count()
+        if initial_count != 0:
+            logger.error(
+                f"CRITICAL: Counter not properly reset! Expected 0, got {initial_count}. "
+                f"Attempting reset again..."
+            )
+            reset_tool_call_count()
+            initial_count = get_tool_call_count()
+            if initial_count != 0:
+                raise RuntimeError(
+                    f"Failed to reset tool call counter after 2 attempts. "
+                    f"Counter stuck at {initial_count}. This is a critical error."
+                )
+
+        logger.info("Tool calls tracking and counter reset verified")
 
     def _extract_token_usage(self, result: Any) -> TokenUsage:
         """Extract token usage from result, with fallback to zero if unavailable."""
@@ -216,8 +234,7 @@ class CypherQueryAgent:
         Returns:
             CypherAgentResult - Contains answer and tool calls
         """
-        self._reset_tool_calls()
-        reset_tool_call_count()
+        self._reset_and_verify_counters()
 
         if self.agent is None:
             raise RuntimeError("Agent not initialized. Call initialize() first.")
