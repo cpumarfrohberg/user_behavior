@@ -7,7 +7,11 @@ import pytest
 from cypher_agent.config import CypherAgentConfig
 from cypher_agent.models import CypherAgentResult, CypherAnswer, TokenUsage
 
+TEST_QUESTION = "How many users are in the database?"
+TEST_QUERY = "MATCH (u:User) RETURN count(u) as user_count"
+TEST_ANSWER = "There are 100 users in the database."
 TEST_CONFIDENCE = 0.85
+TEST_REASONING = "The query counted all User nodes in the graph."
 TEST_INPUT_TOKENS = 100
 TEST_OUTPUT_TOKENS = 50
 TEST_TOTAL_TOKENS = TEST_INPUT_TOKENS + TEST_OUTPUT_TOKENS
@@ -25,11 +29,11 @@ def cypher_config():
 def mock_cypher_answer():
     """Mock CypherAnswer for testing"""
     return CypherAnswer(
-        answer="Test answer from Cypher agent",
+        answer=TEST_ANSWER,
         confidence=TEST_CONFIDENCE,
         sources_used=[TEST_SOURCE_NODE_1, TEST_SOURCE_NODE_2],
-        reasoning="Test reasoning",
-        query_used="MATCH (n) RETURN n LIMIT 10",
+        reasoning=TEST_REASONING,
+        query_used=TEST_QUERY,
     )
 
 

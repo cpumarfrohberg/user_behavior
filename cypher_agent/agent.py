@@ -23,6 +23,7 @@ from cypher_agent.tools import (
     get_tool_call_count,
     initialize_neo4j_driver,
     reset_tool_call_count,
+    set_max_query_results,
     set_max_tool_calls,
 )
 from monitoring.agent_logging import log_agent_run_async
@@ -97,6 +98,9 @@ class CypherQueryAgent:
         set_max_tool_calls(self.config.max_tool_calls)
         logger.info(f"Tool call limit set to {self.config.max_tool_calls}")
 
+        set_max_query_results(self.config.max_query_results)
+        logger.info(f"Query result limit set to {self.config.max_query_results}")
+
         # Get schema and cache it
         logger.info("Retrieving Neo4j schema...")
         self.schema = self._get_schema()
@@ -127,7 +131,7 @@ class CypherQueryAgent:
         logger.info("Cypher Query Agent initialized successfully")
 
     def _get_schema(self) -> str:
-        return get_neo4j_schema()
+        return get_neo4j_schema(max_size=self.config.max_schema_size)
 
     def _inject_schema_into_instructions(self, instructions: str, schema: str) -> str:
         if "{schema}" in instructions:
@@ -264,8 +268,26 @@ class CypherQueryAgent:
             except Exception as e:
                 logger.warning(f"Failed to start background logging task: {e}")
 
+            # Filter sources to only include valid node/question IDs
+            answer = result.output
+            if isinstance(answer, CypherAnswer) and answer.sources_used:
+                filtered_sources = self._filter_valid_sources(answer.sources_used)
+                if len(filtered_sources) < len(answer.sources_used):
+                    logger.warning(
+                        f"Filtered {len(answer.sources_used) - len(filtered_sources)} invalid sources. "
+                        f"Original: {answer.sources_used}, Filtered: {filtered_sources}"
+                    )
+                    # Create new CypherAnswer with filtered sources
+                    answer = CypherAnswer(
+                        answer=answer.answer,
+                        confidence=answer.confidence,
+                        sources_used=filtered_sources,
+                        reasoning=answer.reasoning,
+                        query_used=answer.query_used,
+                    )
+
             return CypherAgentResult(
-                answer=result.output,
+                answer=answer,
                 tool_calls=_tool_calls.copy(),
                 token_usage=token_usage,
             )

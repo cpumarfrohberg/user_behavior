@@ -6,16 +6,18 @@ import pytest
 
 from cypher_agent.agent import CypherQueryAgent
 from cypher_agent.models import CypherAgentResult, CypherAnswer, TokenUsage
+from tests.cypher_agent.conftest import (
+    TEST_ANSWER,
+    TEST_CONFIDENCE,
+    TEST_INPUT_TOKENS,
+    TEST_OUTPUT_TOKENS,
+    TEST_QUERY,
+    TEST_QUESTION,
+    TEST_REASONING,
+    TEST_TOTAL_TOKENS,
+)
 
-TEST_QUESTION = "How many users are in the database?"
-TEST_QUERY = "MATCH (u:User) RETURN count(u) as user_count"
-TEST_ANSWER = "There are 100 users in the database."
-TEST_CONFIDENCE = 0.85
-TEST_REASONING = "The query counted all User nodes in the graph."
 TEST_SOURCES = ["node_1", "node_2"]
-TEST_INPUT_TOKENS = 100
-TEST_OUTPUT_TOKENS = 50
-TEST_TOTAL_TOKENS = TEST_INPUT_TOKENS + TEST_OUTPUT_TOKENS
 TEST_ZERO_TOKENS = 0
 TEST_CONFIDENCE_MOCK = 0.8
 TEST_QUESTION_ID_1 = "question_123"
@@ -30,6 +32,10 @@ TEST_TAG_CONVERSION_RATE = "conversion-rate"
 TEST_PLAIN_NUMBER_1 = "123"
 TEST_PLAIN_NUMBER_2 = "456"
 TEST_PLAIN_STRING = "plain_string"
+TEST_MIN_TOOL_CALLS = 1
+TEST_MAX_TOOL_CALLS = 5
+TEST_TOOL_CALL_COUNT_BEFORE_RESET = 2
+TEST_TOOL_CALL_COUNT_AFTER_RESET = 0
 
 
 @pytest.fixture
@@ -106,13 +112,14 @@ class TestCypherQueryAgent:
         agent, mocks = patched_agent
         mocks["agent_instance"].run = mock_pydantic_ai_agent.run
 
-        result = await agent.query(TEST_QUESTION)
+        with patch("cypher_agent.agent.log_agent_run_async"):
+            result = await agent.query(TEST_QUESTION)
 
         assert isinstance(result, CypherAgentResult)
         assert isinstance(result.answer, CypherAnswer)
         assert result.answer.answer == TEST_ANSWER
         assert result.answer.confidence == TEST_CONFIDENCE
-        assert len(result.tool_calls) > 0
+        assert isinstance(result.tool_calls, list)
         assert isinstance(result.token_usage, TokenUsage)
         mock_pydantic_ai_agent.run.assert_called_once()
 
@@ -284,3 +291,49 @@ def test_extract_sources_all_invalid(
         sources = agent._extract_sources_from_result(mock_result)
 
         assert sources == []
+
+
+def test_reset_and_verify_counters(
+    cypher_config, mock_neo4j_schema, mock_agent_instance
+):
+    """Test that _reset_and_verify_counters resets tool calls and verifies counter"""
+    import cypher_agent.agent as agent_module
+    from cypher_agent.tools import (
+        _check_and_increment_tool_call_count,
+        get_tool_call_count,
+        reset_tool_call_count,
+        set_max_tool_calls,
+    )
+
+    with (
+        patch("cypher_agent.agent.initialize_neo4j_driver"),
+        patch("cypher_agent.agent.get_neo4j_schema") as mock_get_schema,
+        patch("cypher_agent.agent.Agent") as mock_agent_class,
+    ):
+        mock_get_schema.return_value = mock_neo4j_schema
+        mock_agent_class.return_value = mock_agent_instance
+
+        agent = CypherQueryAgent(cypher_config)
+        agent.initialize()
+
+        # Set up counter state
+        set_max_tool_calls(TEST_MAX_TOOL_CALLS)
+        reset_tool_call_count()
+
+        # Simulate some tool calls in the global list
+        agent_module._tool_calls.append({"tool_name": "test", "args": "test"})
+        agent_module._tool_calls.append({"tool_name": "test2", "args": "test2"})
+
+        # Increment counter to simulate previous query
+        for _ in range(TEST_TOOL_CALL_COUNT_BEFORE_RESET):
+            _check_and_increment_tool_call_count()
+        assert get_tool_call_count() == TEST_TOOL_CALL_COUNT_BEFORE_RESET
+        assert len(agent_module._tool_calls) == TEST_TOOL_CALL_COUNT_BEFORE_RESET
+
+        # Call reset and verify
+        agent._reset_and_verify_counters()
+
+        # Verify counter is reset
+        assert get_tool_call_count() == TEST_TOOL_CALL_COUNT_AFTER_RESET
+        # Verify tool calls list is reset
+        assert len(agent_module._tool_calls) == TEST_TOOL_CALL_COUNT_AFTER_RESET

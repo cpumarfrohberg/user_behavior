@@ -29,6 +29,9 @@ _current_max_tool_calls = DEFAULT_MAX_TOOL_CALLS
 _enable_adaptive_limit = False
 _counter_lock = threading.Lock()
 
+# Global state for query result limiting
+_max_query_results = 100  # Default max results per query
+
 
 def set_max_tool_calls(max_calls: int) -> None:
     """Set the maximum number of tool calls allowed."""
@@ -152,7 +155,14 @@ def get_neo4j_driver() -> neo4j.Driver:
     return _neo4j_driver
 
 
-def get_neo4j_schema() -> str:
+def set_max_query_results(max_results: int) -> None:
+    """Set the maximum number of query results to return."""
+    global _max_query_results
+    with _counter_lock:
+        _max_query_results = max_results
+
+
+def get_neo4j_schema(max_size: int | None = None) -> str:
     """
     Retrieve Neo4j schema and format as text for prompt injection.
 
@@ -249,7 +259,29 @@ def get_neo4j_schema() -> str:
                                 )
 
             schema_text = "\n".join(schema_lines)
-            logger.info("Neo4j schema retrieved successfully")
+
+            # Truncate schema if it exceeds max_size
+            if max_size and len(schema_text) > max_size:
+                logger.warning(
+                    f"Schema size ({len(schema_text)} chars) exceeds limit ({max_size} chars). "
+                    f"Truncating schema to prevent context overflow."
+                )
+                # Truncate and add note
+                schema_text = schema_text[:max_size]
+                # Try to truncate at a reasonable point (end of a section)
+                last_newline = schema_text.rfind("\n")
+                if (
+                    last_newline > max_size * 0.9
+                ):  # If we can find a newline near the end
+                    schema_text = schema_text[:last_newline]
+                schema_text += (
+                    f"\n\n[Schema truncated - showing first {len(schema_text)} characters. "
+                    f"Use standard StackExchange node labels and relationship types.]"
+                )
+
+            logger.info(
+                f"Neo4j schema retrieved successfully (size: {len(schema_text)} chars)"
+            )
             return schema_text
 
     except Exception as e:
@@ -378,6 +410,8 @@ def execute_cypher_query(query: str) -> dict[str, Any]:
             "results": [],
             "query": query,
             "error": error_message,
+            "truncated": False,
+            "summary": None,
         }
 
     try:
@@ -386,9 +420,19 @@ def execute_cypher_query(query: str) -> dict[str, Any]:
         with driver.session(database="neo4j") as session:
             result = session.run(query)
 
-            # Convert results to list of dictionaries
+            # Convert results to list of dictionaries with size limiting
             records = []
+            global _max_query_results
+            max_results = _max_query_results
+
             for record in result:
+                # Limit number of records to prevent token overflow
+                if len(records) >= max_results:
+                    logger.warning(
+                        f"Query result limit reached ({max_results} records). "
+                        f"Truncating results to prevent token limit exceeded error."
+                    )
+                    break
                 # Convert Neo4j record to dict
                 record_dict = {}
                 for key in record.keys():
@@ -417,6 +461,17 @@ def execute_cypher_query(query: str) -> dict[str, Any]:
 
                 records.append(record_dict)
 
+            # Check if we hit the limit (more records available but truncated)
+            result_summary = None
+            if len(records) >= max_results:
+                # Try to get count of total records (if query supports it)
+                # Note: This is approximate - we've already consumed the result stream
+                result_summary = (
+                    f"Results truncated to {max_results} records. "
+                    f"Add LIMIT clause to your query to control result size."
+                )
+                logger.warning(result_summary)
+
             logger.info(
                 f"Query executed successfully. Returned {len(records)} records."
             )
@@ -425,6 +480,8 @@ def execute_cypher_query(query: str) -> dict[str, Any]:
                 "results": records,
                 "query": query,
                 "error": None,
+                "truncated": len(records) >= max_results,
+                "summary": result_summary,
             }
 
     except CypherSyntaxError as e:
@@ -434,6 +491,8 @@ def execute_cypher_query(query: str) -> dict[str, Any]:
             "results": [],
             "query": query,
             "error": error_msg,
+            "truncated": False,
+            "summary": None,
         }
     except ServiceUnavailable as e:
         error_msg = f"Neo4j service unavailable: {str(e)}"
@@ -442,6 +501,8 @@ def execute_cypher_query(query: str) -> dict[str, Any]:
             "results": [],
             "query": query,
             "error": error_msg,
+            "truncated": False,
+            "summary": None,
         }
     except Exception as e:
         error_msg = f"Query execution error: {str(e)}"
@@ -450,4 +511,6 @@ def execute_cypher_query(query: str) -> dict[str, Any]:
             "results": [],
             "query": query,
             "error": error_msg,
+            "truncated": False,
+            "summary": None,
         }

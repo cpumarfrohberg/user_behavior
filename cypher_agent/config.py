@@ -23,3 +23,7 @@ class CypherAgentConfig:
     neo4j_password: str = NEO4J_PASSWORD
     max_tool_calls: int = 5  # Maximum number of tool calls allowed per query
     max_tokens: int = CYPHER_AGENT_MAX_TOKENS  # Maximum tokens for agent responses
+    max_schema_size: int = (
+        5000  # Maximum schema size in characters (prevents context overflow)
+    )
+    max_query_results: int = 100  # Maximum number of records to return from a query

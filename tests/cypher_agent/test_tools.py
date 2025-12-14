@@ -12,10 +12,27 @@ from cypher_agent.tools import (
     get_tool_call_count,
     initialize_neo4j_driver,
     reset_tool_call_count,
+    set_max_query_results,
     set_max_tool_calls,
     validate_cypher_query,
 )
 from mongodb_agent.tools import ToolCallLimitExceeded
+
+# Test constants
+TEST_USER_ID = 1
+TEST_USER_ID_NOT_FOUND = 99999
+TEST_DEFAULT_MAX_TOOL_CALLS = 5
+TEST_TOOL_CALL_COUNT_TWO = 2
+TEST_TOOL_CALL_COUNT_ZERO = 0
+TEST_TOOL_CALL_COUNT_ONE = 1
+TEST_EXPECTED_RESULT_COUNT_SINGLE = 1
+TEST_SCHEMA_RECORD_COUNT = 100
+TEST_SCHEMA_MAX_SIZE = 500
+TEST_SCHEMA_TRUNCATION_BUFFER = 200
+TEST_QUERY_RESULT_COUNT_LARGE = 150
+TEST_QUERY_RESULT_LIMIT = 50
+TEST_QUERY_RESULT_COUNT_SMALL = 10
+TEST_QUERY_RESULT_LIMIT_LARGE = 100
 
 
 @pytest.mark.parametrize(
@@ -103,7 +120,7 @@ def test_execute_valid_query(mock_neo4j_driver):
     mock_record = MagicMock()
     mock_record.keys.return_value = ["user_id", "display_name"]
     mock_record.__getitem__.side_effect = lambda key: {
-        "user_id": 1,
+        "user_id": TEST_USER_ID,
         "display_name": "TestUser",
     }[key]
     session.run.return_value = [mock_record]
@@ -114,8 +131,8 @@ def test_execute_valid_query(mock_neo4j_driver):
         )
 
     assert result["error"] is None
-    assert len(result["results"]) == 1
-    assert result["results"][0]["user_id"] == "1"
+    assert len(result["results"]) == TEST_EXPECTED_RESULT_COUNT_SINGLE
+    assert result["results"][0]["user_id"] == str(TEST_USER_ID)
     assert result["results"][0]["display_name"] == "TestUser"
 
 
@@ -156,7 +173,9 @@ def test_execute_query_empty_results(mock_neo4j_driver):
     session.run.return_value = []
 
     with patch("cypher_agent.tools._neo4j_driver", mock_neo4j_driver):
-        result = execute_cypher_query("MATCH (n:User) WHERE n.user_id = 99999 RETURN n")
+        result = execute_cypher_query(
+            f"MATCH (n:User) WHERE n.user_id = {TEST_USER_ID_NOT_FOUND} RETURN n"
+        )
 
     assert result["error"] is None
     assert result["results"] == []
@@ -171,7 +190,7 @@ def reset_counter():
 
 @pytest.fixture
 def setup_limit(reset_counter):
-    set_max_tool_calls(5)
+    set_max_tool_calls(TEST_DEFAULT_MAX_TOOL_CALLS)
     reset_tool_call_count()
     yield
     reset_tool_call_count()
@@ -180,9 +199,9 @@ def setup_limit(reset_counter):
 def test_reset_tool_call_count(setup_limit):
     _check_and_increment_tool_call_count()
     _check_and_increment_tool_call_count()
-    assert get_tool_call_count() == 2
+    assert get_tool_call_count() == TEST_TOOL_CALL_COUNT_TWO
     reset_tool_call_count()
-    assert get_tool_call_count() == 0
+    assert get_tool_call_count() == TEST_TOOL_CALL_COUNT_ZERO
 
 
 @pytest.mark.parametrize("num_calls", [1, 2, 3])
@@ -211,12 +230,12 @@ def test_counter_resets_between_queries(setup_limit):
     reset_tool_call_count()
     _check_and_increment_tool_call_count()
     _check_and_increment_tool_call_count()
-    assert get_tool_call_count() == 2
+    assert get_tool_call_count() == TEST_TOOL_CALL_COUNT_TWO
 
     reset_tool_call_count()
-    assert get_tool_call_count() == 0
+    assert get_tool_call_count() == TEST_TOOL_CALL_COUNT_ZERO
     _check_and_increment_tool_call_count()
-    assert get_tool_call_count() == 1
+    assert get_tool_call_count() == TEST_TOOL_CALL_COUNT_ONE
 
 
 @pytest.mark.parametrize(
@@ -241,3 +260,83 @@ def test_set_max_tool_calls(reset_counter, initial_limit, new_limit):
 
     with pytest.raises(ToolCallLimitExceeded):
         _check_and_increment_tool_call_count()
+
+
+def test_get_schema_truncation(mock_neo4j_driver):
+    """Test that schema is truncated when it exceeds max_size"""
+    session = mock_neo4j_driver.session.return_value.__enter__.return_value
+    # Create many records to generate a large schema
+    mock_records = []
+    for i in range(TEST_SCHEMA_RECORD_COUNT):
+        mock_record = MagicMock()
+        mock_record.get.side_effect = lambda key, default=None, idx=i: {
+            "nodeLabels": [f"Node{idx}"],
+            "relType": f"REL{idx}",
+            "propertyName": f"prop{idx}",
+            "propertyTypes": ["String"],
+        }.get(key, default)
+        mock_records.append(mock_record)
+    session.run.return_value = mock_records
+
+    with patch("cypher_agent.tools._neo4j_driver", mock_neo4j_driver):
+        # Test with small max_size
+        schema = get_neo4j_schema(max_size=TEST_SCHEMA_MAX_SIZE)
+
+    assert "NEO4J SCHEMA" in schema
+    assert len(schema) <= TEST_SCHEMA_MAX_SIZE + TEST_SCHEMA_TRUNCATION_BUFFER
+    assert "truncated" in schema.lower() or "Schema truncated" in schema
+
+
+def test_execute_query_result_limiting(mock_neo4j_driver):
+    """Test that query results are limited to max_query_results"""
+    from cypher_agent.tools import set_max_query_results
+
+    session = mock_neo4j_driver.session.return_value.__enter__.return_value
+    # Create many mock records to test limiting
+    mock_records = []
+    for i in range(TEST_QUERY_RESULT_COUNT_LARGE):
+        mock_record = MagicMock()
+        mock_record.keys.return_value = ["id", "name"]
+        mock_record.__getitem__.side_effect = lambda key, idx=i: {
+            "id": idx,
+            "name": f"Test{idx}",
+        }[key]
+        mock_records.append(mock_record)
+    session.run.return_value = mock_records
+
+    # Set max results limit
+    set_max_query_results(TEST_QUERY_RESULT_LIMIT)
+
+    with patch("cypher_agent.tools._neo4j_driver", mock_neo4j_driver):
+        result = execute_cypher_query("MATCH (n:User) RETURN n.id, n.name")
+
+    assert result["error"] is None
+    assert len(result["results"]) == TEST_QUERY_RESULT_LIMIT
+    assert result["truncated"] is True
+    assert result["summary"] is not None
+    assert "truncated" in result["summary"].lower()
+    assert str(TEST_QUERY_RESULT_LIMIT) in result["summary"]
+
+
+def test_execute_query_no_truncation_when_under_limit(mock_neo4j_driver):
+    from cypher_agent.tools import set_max_query_results
+
+    session = mock_neo4j_driver.session.return_value.__enter__.return_value
+    # Create mock records (under limit)
+    mock_records = []
+    for i in range(TEST_QUERY_RESULT_COUNT_SMALL):
+        mock_record = MagicMock()
+        mock_record.keys.return_value = ["id"]
+        mock_record.__getitem__.side_effect = lambda key, idx=i: {"id": idx}[key]
+        mock_records.append(mock_record)
+    session.run.return_value = mock_records
+
+    set_max_query_results(TEST_QUERY_RESULT_LIMIT_LARGE)
+
+    with patch("cypher_agent.tools._neo4j_driver", mock_neo4j_driver):
+        result = execute_cypher_query("MATCH (n:User) RETURN n.id")
+
+    assert result["error"] is None
+    assert len(result["results"]) == TEST_QUERY_RESULT_COUNT_SMALL
+    assert result["truncated"] is False
+    assert result["summary"] is None
