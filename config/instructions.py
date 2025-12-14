@@ -1,11 +1,7 @@
-"""Agent instructions configuration for user behavior analysis system"""
-
 from enum import StrEnum
 
 
 class InstructionType(StrEnum):
-    """Agent-specific instruction types for user behavior analysis"""
-
     ORCHESTRATOR_AGENT = "orchestrator_agent"
     MONGODB_AGENT = "mongodb_agent"
     CYPHER_QUERY_AGENT = "cypher_query_agent"
@@ -13,8 +9,6 @@ class InstructionType(StrEnum):
 
 
 class InstructionsConfig:
-    """Configuration for agent instructions"""
-
     USER_BEHAVIOR_DEFINITION = """
 Questions having the [tag:user-behavior] tag regard users reaction and/or behavior to the environment she encounters.
 
