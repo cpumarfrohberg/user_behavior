@@ -1,10 +1,7 @@
-"""Tests for Neo4j ETL data extraction functions"""
-
 import pytest
 
 from neo4j_etl.src.extract import collect_batch_data
 
-# Constants
 TEST_USER_ID = 123
 TEST_USER_ID_ALT = 456
 TEST_DISPLAY_NAME = "John Doe"
@@ -31,7 +28,6 @@ TEST_TAG_VALID_ALT = "testing"
 
 @pytest.fixture
 def base_question_doc():
-    """Base question document from MongoDB"""
     return {
         "question_id": TEST_QUESTION_ID,
         "title": TEST_TITLE,
@@ -51,7 +47,6 @@ def base_question_doc():
 
 
 def test_collect_batch_data_empty():
-    """Test collect_batch_data with empty batch"""
     result = collect_batch_data([])
 
     assert result["questions"] == []
@@ -60,7 +55,6 @@ def test_collect_batch_data_empty():
 
 
 def test_collect_batch_data_simple_question(base_question_doc):
-    """Test collect_batch_data with a simple question (no answers/comments)"""
     result = collect_batch_data([base_question_doc])
 
     assert len(result["questions"]) == 1
@@ -72,7 +66,6 @@ def test_collect_batch_data_simple_question(base_question_doc):
 
 
 def test_collect_batch_data_with_answer(base_question_doc):
-    """Test collect_batch_data with question and answer"""
     base_question_doc["answers"] = [
         {
             "answer_id": TEST_ANSWER_ID,
@@ -95,7 +88,6 @@ def test_collect_batch_data_with_answer(base_question_doc):
 
 
 def test_collect_batch_data_with_comment(base_question_doc):
-    """Test collect_batch_data with question and comment"""
     base_question_doc["comments"] = [
         {
             "comment_id": TEST_COMMENT_ID,
@@ -113,7 +105,6 @@ def test_collect_batch_data_with_comment(base_question_doc):
 
 
 def test_collect_batch_data_user_deduplication(base_question_doc):
-    """Test that same user is not duplicated across multiple questions"""
     question_doc_2 = base_question_doc.copy()
     question_doc_2["question_id"] = TEST_QUESTION_ID_ALT
 
@@ -124,7 +115,6 @@ def test_collect_batch_data_user_deduplication(base_question_doc):
 
 
 def test_collect_batch_data_tag_deduplication(base_question_doc):
-    """Test that same tag is not duplicated"""
     base_question_doc["tags"] = [TEST_TAG_VALID, TEST_TAG_VALID, TEST_TAG_VALID_ALT]
 
     result = collect_batch_data([base_question_doc])
@@ -134,7 +124,6 @@ def test_collect_batch_data_tag_deduplication(base_question_doc):
 
 
 def test_collect_batch_data_skips_invalid_question(base_question_doc):
-    """Test that invalid questions are skipped"""
     invalid_question = {"invalid": "data"}  # Missing question_id
 
     result = collect_batch_data([base_question_doc, invalid_question])
@@ -143,7 +132,6 @@ def test_collect_batch_data_skips_invalid_question(base_question_doc):
 
 
 def test_collect_batch_data_question_without_owner(base_question_doc):
-    """Test question without owner (anonymous)"""
     base_question_doc.pop("owner")
 
     result = collect_batch_data([base_question_doc])
