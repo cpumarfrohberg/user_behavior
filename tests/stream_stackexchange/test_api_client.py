@@ -1,5 +1,3 @@
-"""Tests for API client"""
-
 from unittest.mock import MagicMock, patch
 
 import pytest

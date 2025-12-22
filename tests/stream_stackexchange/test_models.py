@@ -1,5 +1,3 @@
-"""Tests for StackExchange Pydantic models"""
-
 import pytest
 
 from stream_stackexchange.models import Answer, Comment, Question, User

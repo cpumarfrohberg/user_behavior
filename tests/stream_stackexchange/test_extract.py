@@ -1,5 +1,3 @@
-"""Tests for extraction logic"""
-
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -55,7 +53,6 @@ TEST_ANSWER_VALID_BODY = "Valid answer"
 def test_extract_user_with_fields(
     owner_data, expected_user_id, expected_display_name, expected_reputation
 ):
-    """Test extracting User with various field combinations"""
     user = extract_user(owner_data)
     assert user is not None
     assert user.user_id == expected_user_id
@@ -73,12 +70,10 @@ def test_extract_user_with_fields(
     ids=["empty_dict", "none"],
 )
 def test_extract_user_returns_none(owner_data):
-    """Test extract_user returns None for empty/None input"""
     assert extract_user(owner_data) is None
 
 
 def test_extract_user_handles_invalid_data_gracefully():
-    """Test extract_user handles validation errors gracefully"""
     owner_data = {"user_id": "invalid"}  # Should still work, Pydantic handles it
     user = extract_user(owner_data)
     # Pydantic might convert or raise, but our function catches it
@@ -88,7 +83,6 @@ def test_extract_user_handles_invalid_data_gracefully():
 
 @pytest.fixture
 def base_comment_data():
-    """Base comment data for testing"""
     return {
         "comment_id": TEST_COMMENT_ID,
         "body": TEST_BODY_COMMENT,
@@ -98,7 +92,6 @@ def base_comment_data():
 
 
 def test_extract_comment_success(base_comment_data):
-    """Test extracting Comment successfully"""
     comment = extract_comment(base_comment_data)
     assert comment is not None
     assert comment.comment_id == TEST_COMMENT_ID
@@ -127,12 +120,10 @@ def test_extract_comment_success(base_comment_data):
     ids=["missing_comment_id", "missing_owner"],
 )
 def test_extract_comment_returns_none(comment_data):
-    """Test extract_comment returns None if required fields are missing"""
     assert extract_comment(comment_data) is None
 
 
 def test_extract_comment_handles_invalid_owner():
-    """Test extract_comment handles invalid owner data"""
     comment_data = {
         "comment_id": TEST_COMMENT_ID,
         "body": TEST_BODY_SHORT,
@@ -146,13 +137,10 @@ def test_extract_comment_handles_invalid_owner():
 
 @pytest.fixture
 def mock_api_client():
-    """Mock API client for testing"""
     return MagicMock(spec=StackExchangeAPIClient)
 
 
 def test_extract_answers_success(mock_api_client):
-    """Test extracting answers successfully"""
-    # Mock API response for answers
     mock_api_client.get_answers.return_value = {
         "items": [
             {
@@ -179,7 +167,6 @@ def test_extract_answers_success(mock_api_client):
 
 
 def test_extract_answers_handles_api_error(mock_api_client):
-    """Test extract_answers handles API errors gracefully"""
     mock_api_client.get_answers.side_effect = Exception("API Error")
 
     answers = extract_answers(
@@ -190,7 +177,6 @@ def test_extract_answers_handles_api_error(mock_api_client):
 
 
 def test_extract_answers_skips_invalid_answers(mock_api_client):
-    """Test extract_answers skips invalid answer data"""
     mock_api_client.get_answers.return_value = {
         "items": [
             {
@@ -219,7 +205,6 @@ def test_extract_answers_skips_invalid_answers(mock_api_client):
 
 @pytest.fixture
 def base_question_data():
-    """Base question data for testing"""
     return {
         "question_id": TEST_QUESTION_ID,
         "title": TEST_TITLE_QUESTION,
@@ -241,7 +226,6 @@ def test_extract_question_success(
     base_question_data,
     mock_api_client,
 ):
-    """Test extracting Question successfully"""
     mock_time.time.return_value = TEST_TIMESTAMP
     mock_extract_user.return_value = User(
         user_id=TEST_USER_ID, display_name=TEST_DISPLAY_NAME
@@ -262,7 +246,6 @@ def test_extract_question_success(
 
 
 def test_extract_question_missing_question_id(mock_api_client):
-    """Test extract_question returns None if question_id is missing"""
     question_data = {
         "title": TEST_TITLE_SHORT,
         "body": TEST_BODY_SHORT_ALT,

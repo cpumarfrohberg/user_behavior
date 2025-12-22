@@ -1,5 +1,3 @@
-"""Tests for validation logic"""
-
 import pytest
 
 from stream_stackexchange.validate import is_relevant
