@@ -4,41 +4,31 @@ from typing import Any
 
 import requests
 
-from config import APIEndpoint
+from config import DEFAULT_PAGE, DEFAULT_PAGESIZE, APIEndpoint, APIParameter
 
 
 class StackExchangeAPIClient:
-    """Handles HTTP requests to StackExchange API"""
-
     def __init__(self, api_key: str):
         self.api_key = api_key
         self.base_url = APIEndpoint.BASE_URL
         self.questions_endpoint = APIEndpoint.QUESTIONS
 
     def get_questions(
-        self, site: str, tag: str | None = None, page: int = 1, pagesize: int = 50
+        self,
+        site: str,
+        tag: str | None = None,
+        page: int = DEFAULT_PAGE,
+        pagesize: int = DEFAULT_PAGESIZE,
     ) -> dict[str, Any]:
-        """
-        Fetch questions from StackExchange API
-
-        Args:
-            site: StackExchange site (e.g., "ux")
-            tag: Optional tag to filter by
-            page: Page number
-            pagesize: Number of items per page
-
-        Returns:
-            API response as dict
-        """
         url = f"{self.base_url}/{self.questions_endpoint}"
         params = {
             "site": site,
-            "sort": "votes",
-            "order": "desc",
+            "sort": APIParameter.SORT_VOTES,
+            "order": APIParameter.ORDER_DESC,
             "pagesize": pagesize,
             "page": page,
             "key": self.api_key,
-            "filter": "withbody",
+            "filter": APIParameter.FILTER_WITHBODY,
         }
 
         if tag:
@@ -53,9 +43,9 @@ class StackExchangeAPIClient:
         params = {
             "site": site,
             "key": self.api_key,
-            "filter": "withbody",
-            "sort": "votes",
-            "order": "desc",
+            "filter": APIParameter.FILTER_WITHBODY,
+            "sort": APIParameter.SORT_VOTES,
+            "order": APIParameter.ORDER_DESC,
         }
 
         response = requests.get(url, params=params)
@@ -69,9 +59,9 @@ class StackExchangeAPIClient:
         params = {
             "site": site,
             "key": self.api_key,
-            "filter": "withbody",
-            "sort": "creation",
-            "order": "asc",
+            "filter": APIParameter.FILTER_WITHBODY,
+            "sort": APIParameter.SORT_CREATION,
+            "order": APIParameter.ORDER_ASC,
         }
 
         response = requests.get(url, params=params)

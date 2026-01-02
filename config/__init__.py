@@ -38,6 +38,18 @@ class APIEndpoint(StrEnum):
     SIMILAR = "similar"
 
 
+class APIParameter(StrEnum):
+    SORT_VOTES = "votes"
+    SORT_CREATION = "creation"
+    ORDER_DESC = "desc"
+    ORDER_ASC = "asc"
+    FILTER_WITHBODY = "withbody"
+
+
+DEFAULT_PAGE = 1
+DEFAULT_PAGESIZE = 50
+
+
 class StackExchangeSite(StrEnum):
     USER_EXPERIENCE = "ux"
 
