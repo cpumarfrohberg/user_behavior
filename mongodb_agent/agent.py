@@ -1,4 +1,3 @@
-# MongoDB Agent class for making repetitive tool calls
 """Main agent class that orchestrates multiple tool calls"""
 
 import json
