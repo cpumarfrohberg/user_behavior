@@ -1,6 +1,3 @@
-# Configuration for MongoDB Agent
-"""MongoDB Agent configuration dataclass"""
-
 import os
 from dataclasses import dataclass
 
@@ -11,12 +8,16 @@ from config import (
     InstructionType,
 )
 
-# MongoDB Agent adaptive limit defaults
 DEFAULT_INITIAL_MAX_TOOL_CALLS = int(os.getenv("DEFAULT_INITIAL_MAX_TOOL_CALLS", "3"))
 DEFAULT_EXTENDED_MAX_TOOL_CALLS = int(os.getenv("DEFAULT_EXTENDED_MAX_TOOL_CALLS", "6"))
 DEFAULT_ENABLE_ADAPTIVE_LIMIT = (
     os.getenv("DEFAULT_ENABLE_ADAPTIVE_LIMIT", "true").lower() == "true"
 )
+
+QUERY_DISPLAY_TRUNCATE_LENGTH = 50
+QUESTION_LOG_TRUNCATE_LENGTH = 100
+MAX_RESET_ATTEMPTS = 2
+LIMIT_REACHED_CONFIDENCE = 0.7
 
 
 @dataclass

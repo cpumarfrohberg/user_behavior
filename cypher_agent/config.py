@@ -9,6 +9,10 @@ from config import (
     InstructionType,
 )
 
+QUERY_DISPLAY_TRUNCATE_LENGTH = 50
+QUESTION_LOG_TRUNCATE_LENGTH = 100
+MAX_RESET_ATTEMPTS = 2
+
 
 @dataclass
 class CypherAgentConfig:

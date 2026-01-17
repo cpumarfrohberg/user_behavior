@@ -9,7 +9,12 @@ from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
 from config.instructions import InstructionsConfig, InstructionType
-from cypher_agent.config import CypherAgentConfig
+from cypher_agent.config import (
+    MAX_RESET_ATTEMPTS,
+    QUERY_DISPLAY_TRUNCATE_LENGTH,
+    QUESTION_LOG_TRUNCATE_LENGTH,
+    CypherAgentConfig,
+)
 from cypher_agent.models import (
     CypherAgentResult,
     CypherAnswer,
@@ -60,12 +65,16 @@ async def track_tool_calls(ctx: Any, event: Any) -> None:
                 else event.part.args
             )
             query = (
-                args_dict.get("query", "N/A")[:50]
+                args_dict.get("query", "N/A")[:QUERY_DISPLAY_TRUNCATE_LENGTH]
                 if isinstance(args_dict, dict)
-                else str(event.part.args)[:50]
+                else str(event.part.args)[:QUERY_DISPLAY_TRUNCATE_LENGTH]
             )
         except (json.JSONDecodeError, AttributeError, TypeError):
-            query = str(event.part.args)[:50] if event.part.args else "N/A"
+            query = (
+                str(event.part.args)[:QUERY_DISPLAY_TRUNCATE_LENGTH]
+                if event.part.args
+                else "N/A"
+            )
 
         print(
             f"🔍 Tool call #{tool_num}: {event.part.tool_name} with query: {query}..."
@@ -159,7 +168,7 @@ class CypherQueryAgent:
             initial_count = get_tool_call_count()
             if initial_count != 0:
                 raise RuntimeError(
-                    f"Failed to reset tool call counter after 2 attempts. "
+                    f"Failed to reset tool call counter after {MAX_RESET_ATTEMPTS} attempts. "
                     f"Counter stuck at {initial_count}. This is a critical error."
                 )
 
@@ -234,7 +243,9 @@ class CypherQueryAgent:
         if self.agent is None:
             raise RuntimeError("Agent not initialized. Call initialize() first.")
 
-        logger.info(f"Running Cypher Query Agent query: {question[:100]}...")
+        logger.info(
+            f"Running Cypher Query Agent query: {question[:QUESTION_LOG_TRUNCATE_LENGTH]}..."
+        )
         print(
             "🤖 Cypher Query Agent is processing your question (this may take 30-60 seconds)..."
         )

@@ -13,7 +13,13 @@ from pymongo import MongoClient
 
 from config import DEFAULT_MAX_TOKENS
 from config.instructions import InstructionsConfig, InstructionType
-from mongodb_agent.config import MongoDBConfig
+from mongodb_agent.config import (
+    LIMIT_REACHED_CONFIDENCE,
+    MAX_RESET_ATTEMPTS,
+    QUERY_DISPLAY_TRUNCATE_LENGTH,
+    QUESTION_LOG_TRUNCATE_LENGTH,
+    MongoDBConfig,
+)
 from mongodb_agent.models import (
     SearchAgentResult,
     SearchAnswer,
@@ -68,12 +74,16 @@ async def track_tool_calls(ctx: Any, event: Any) -> None:
                 else event.part.args
             )
             query = (
-                args_dict.get("query", "N/A")[:50]
+                args_dict.get("query", "N/A")[:QUERY_DISPLAY_TRUNCATE_LENGTH]
                 if isinstance(args_dict, dict)
-                else str(event.part.args)[:50]
+                else str(event.part.args)[:QUERY_DISPLAY_TRUNCATE_LENGTH]
             )
         except (json.JSONDecodeError, AttributeError, TypeError):
-            query = str(event.part.args)[:50] if event.part.args else "N/A"
+            query = (
+                str(event.part.args)[:QUERY_DISPLAY_TRUNCATE_LENGTH]
+                if event.part.args
+                else "N/A"
+            )
 
         print(
             f"🔍 Tool call #{tool_num}: {event.part.tool_name} with query: {query}..."
@@ -165,7 +175,7 @@ class MongoDBSearchAgent:
             initial_count = get_tool_call_count()
             if initial_count != 0:
                 raise RuntimeError(
-                    f"Failed to reset tool call counter after 2 attempts. "
+                    f"Failed to reset tool call counter after {MAX_RESET_ATTEMPTS} attempts. "
                     f"Counter stuck at {initial_count}. This is a critical error."
                 )
             logger.warning(
@@ -225,7 +235,7 @@ class MongoDBSearchAgent:
     ) -> SearchAnswer:
         """Create a fallback SearchAnswer when tool call limit is reached."""
         limit_search_entry = SearchEntry(
-            query=question[:100],
+            query=question[:QUESTION_LOG_TRUNCATE_LENGTH],
             tags=[],
             num_results=0,
             top_scores=[],
@@ -238,7 +248,7 @@ class MongoDBSearchAgent:
                 f"Agent completed {current_count} searches and reached the maximum limit. "
                 f"Answer synthesized from the {current_count} search results obtained."
             ),
-            confidence=0.7,  # Moderate confidence when limit is reached
+            confidence=LIMIT_REACHED_CONFIDENCE,  # Moderate confidence when limit is reached
             sources_used=sources_used,
             reasoning=(
                 f"Completed {current_count} searches as designed. "
@@ -295,7 +305,9 @@ class MongoDBSearchAgent:
         if self.agent is None:
             raise RuntimeError("Agent not initialized. Call initialize() first.")
 
-        logger.info(f"Running agent query: {question[:100]}...")
+        logger.info(
+            f"Running agent query: {question[:QUESTION_LOG_TRUNCATE_LENGTH]}..."
+        )
         print("🤖 Agent is processing your question (this may take 30-60 seconds)...")
 
         # Run agent with event tracking
