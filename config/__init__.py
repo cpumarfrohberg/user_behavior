@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 
 from config.instructions import InstructionsConfig, InstructionType
 
-load_dotenv(override=True)
+load_dotenv(override=False)
 
 
 class TokenizerModel(StrEnum):
