@@ -49,7 +49,8 @@ uv sync
 ### 2. Start Services
 
 ```bash
-docker compose up -d
+# Recommended: start only the long-running infrastructure services
+docker compose up -d mongodb postgres neo4j
 ```
 
 Neo4j Browser (web UI for exploring the graph) is at `http://localhost:7474`. Your app connects via Bolt at `localhost:7687` (use `NEO4J_URI=bolt://localhost:7687` in `.env`).
@@ -79,10 +80,10 @@ STACKEXCHANGE_API_KEY=your_stackexchange_api_key
 ### 4. Run the Application
 
 ```bash
-streamlit run streamlit_app.py
+uv run streamlit run streamlit_app.py
 ```
 
-Then open `http://localhost:8501` in your browser.
+**One command (Docker + Streamlit):** from the project root, run `./run_local.sh` after `chmod +x run_local.sh`. This starts MongoDB, PostgreSQL, and Neo4j, then launches Streamlit. Open `http://localhost:8501` in your browser.
 
 ## Agent System
 
@@ -159,19 +160,6 @@ user_behavior/
 ```
 
 ## Implementation Status
-
-### ✅ Completed
-- Multi-agent architecture (Orchestrator, MongoDB, Cypher)
-- Tool call limits with hard stops (both agents)
-- Cypher read-only validation (write operations blocked; syntax and safety checks)
-- Streaming support in Streamlit
-- Cost tracking and monitoring
-- Evaluation framework (MongoDB and Cypher agents)
-- Parallel agent execution
-- Instruction optimizations
-- Orchestrator tools refactoring (DRY pattern)
-- Cypher agent optimizations (schema truncation, result limiting)
-- Local Neo4j via Docker Compose
 
 ### 📋 Planned
 - Guardrail event logging to monitoring DB (schema exists; not yet wired in)
