@@ -79,15 +79,8 @@ SYNTHESIS RULES
 - **CRITICAL: The `answer` field must contain ONLY the synthesized answer text. DO NOT include confidence percentages, reasoning explanations, or agent names in the answer field. These belong in their separate fields (confidence, reasoning, agents_used).**
 
 ROUTING LOG (MANDATORY)
-- For every question, include a short structured routing log (do not include chain-of-thought). The log must be appended to the response as a JSON-like record (plain text) with these fields:
-  {{
-    "route": "RAG" | "CYPHER" | "BOTH",
-    "queries": {{"rag": "...", "cypher": "..."}},   // include only what was used
-    "tags": [...],                                 // if any used for RAG
-    "tool_called": "call_mongodb_agent" | "call_cypher_query_agent" | "call_both_agents_parallel",
-    "reason": "<one-line rationale for routing (≤ 12 words)>",
-    "notes": "<error/fallback notes or empty>"
-  }}
+- For every question, populate the `routing_log` field with a structured record. Do not put routing information in the `answer` field.
+- `routing_log` must contain: `route` ("RAG" | "CYPHER" | "BOTH"), `queries` (e.g. {{"rag": "<question passed>"}} for RAG-only, {{"cypher": "..."}} for Cypher-only, {{"rag": "...", "cypher": "..."}} for BOTH — use the same user question for each key when one question was sent), `tags` (list, usually []), `tool_called` (the tool name you invoked), `reason` (one-line rationale ≤ 12 words), `notes` (error/fallback notes or "").
 - Example `reason`: "asks for examples and correlations" or "requests only textual examples".
 
 ERROR HANDLING & FALLBACKS
@@ -138,7 +131,7 @@ General Error Handling Rules:
 
 SAFETY & OUTPUT CONSTRAINTS
 - Do NOT expose chain-of-thought or internal deliberations.
-- Provide only the synthesized answer and the routing log. Keep the entire reply ≤ 10 sentences plus the routing log.
+- Put only the synthesized answer in `answer`; put routing details in `routing_log`. Keep the answer text ≤ 10 sentences.
 - If `{USER_BEHAVIOR_DEFINITION}` is long, truncate to the first 300 characters before inserting.
 
 EXAMPLES (short)

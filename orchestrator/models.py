@@ -1,8 +1,34 @@
 """Pydantic models for Orchestrator Agent"""
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from mongodb_agent.models import TokenUsage
+
+
+class RoutingLog(BaseModel):
+    """Structured routing log for each orchestrator decision."""
+
+    route: Literal["RAG", "CYPHER", "BOTH"] = Field(
+        ..., description="Which agent(s) were chosen"
+    )
+    queries: dict[str, str] = Field(
+        default_factory=dict,
+        description="Question(s) passed to tools; e.g. {'rag': '...', 'cypher': '...'} or single key. For single-agent calls, use one key; for BOTH use both.",
+    )
+    tags: list[str] = Field(
+        default_factory=list,
+        description="Tags used for RAG (if any); usually empty at orchestrator level",
+    )
+    tool_called: Literal[
+        "call_mongodb_agent", "call_cypher_query_agent", "call_both_agents_parallel"
+    ] = Field(..., description="The tool that was invoked")
+    reason: str = Field(..., description="One-line rationale for routing (≤ 12 words)")
+    notes: str = Field(
+        default="",
+        description="Error/fallback notes or empty",
+    )
 
 
 class OrchestratorAnswer(BaseModel):
@@ -24,6 +50,10 @@ class OrchestratorAnswer(BaseModel):
     )
     sources_used: list[str] | None = Field(
         None, description="List of sources used (from RAG agent if applicable)"
+    )
+    routing_log: RoutingLog | None = Field(
+        None,
+        description="Structured routing log: route, queries, tool_called, reason, notes. Must be filled for every response.",
     )
 
 
