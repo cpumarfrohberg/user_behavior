@@ -38,59 +38,6 @@ from monitoring.agent_logging import log_agent_run_async
 
 logger = logging.getLogger(__name__)
 
-# Store tool calls for evaluation
-_tool_calls: List[dict] = []
-
-
-async def track_tool_calls(ctx: Any, event: Any) -> None:
-    """Event handler to track all tool calls"""
-    global _tool_calls
-
-    # Handle nested async streams
-    if hasattr(event, "__aiter__"):
-        async for sub in event:
-            await track_tool_calls(ctx, sub)
-        return
-
-    # Track function tool calls
-    if isinstance(event, FunctionToolCallEvent):
-        tool_call = {
-            "tool_name": event.part.tool_name,
-            "args": event.part.args,
-        }
-        _tool_calls.append(tool_call)
-        tool_num = len(_tool_calls)
-
-        # Note: Counter increment is now handled by tool function's pre-call validation
-        # (see _check_and_increment_tool_call_count in tools.py)
-        # This prevents double-counting and ensures thread-safe limit enforcement
-
-        # Parse args to extract query for display
-        try:
-            args_dict = (
-                json.loads(event.part.args)
-                if isinstance(event.part.args, str)
-                else event.part.args
-            )
-            query = (
-                args_dict.get("query", "N/A")[:QUERY_DISPLAY_TRUNCATE_LENGTH]
-                if isinstance(args_dict, dict)
-                else str(event.part.args)[:QUERY_DISPLAY_TRUNCATE_LENGTH]
-            )
-        except (json.JSONDecodeError, AttributeError, TypeError):
-            query = (
-                str(event.part.args)[:QUERY_DISPLAY_TRUNCATE_LENGTH]
-                if event.part.args
-                else "N/A"
-            )
-
-        print(
-            f"🔍 Tool call #{tool_num}: {event.part.tool_name} with query: {query}..."
-        )
-        logger.info(
-            f"Tool Call #{tool_num}: {event.part.tool_name} with args: {event.part.args}"
-        )
-
 
 class MongoDBSearchAgent:
     """MongoDB Search Agent that makes repetitive tool calls for better retrieval"""
@@ -158,9 +105,6 @@ class MongoDBSearchAgent:
 
     def _reset_and_verify_counters(self) -> None:
         """Reset tool calls and counter, verify counter is properly reset."""
-        global _tool_calls
-        _tool_calls = []
-
         reset_tool_call_count()
         # Verify counter is reset to 0
         initial_count = get_tool_call_count()
@@ -257,30 +201,36 @@ class MongoDBSearchAgent:
         )
 
     def _handle_tool_call_limit_exceeded(
-        self, e: ToolCallLimitExceeded, result: Any, question: str
+        self,
+        limit_exceeded: ToolCallLimitExceeded,
+        result: Any,
+        question: str,
+        tool_calls: list[dict],
     ) -> SearchAgentResult:
         """Handle ToolCallLimitExceeded exception and return a valid result."""
         logger.info(
-            f"Agent completed with limit: {e.current_count} searches made (max: {e.max_calls}). "
+            f"Agent completed with limit: {limit_exceeded.current_count} searches made (max: {limit_exceeded.max_calls}). "
             f"This is expected and valid - agent has synthesized answer from results."
         )
 
         token_usage = self._extract_token_usage(result)
         sources_used = self._extract_sources_from_result(result)
         limit_answer = self._create_limit_fallback_answer(
-            question, e.current_count, e.max_calls, sources_used
+            question,
+            limit_exceeded.current_count,
+            limit_exceeded.max_calls,
+            sources_used,
         )
 
         # Filter tool calls to only include successful ones (exclude blocked attempts)
-        global _tool_calls
-        successful_tool_calls = _tool_calls[: e.current_count]
+        successful_tool_calls = tool_calls[: limit_exceeded.current_count]
 
         logger.info(
-            f"Agent completed with limit. Tool calls: {e.current_count}, "
+            f"Agent completed with limit. Tool calls: {limit_exceeded.current_count}, "
             f"Token usage: {token_usage.total_tokens}"
         )
         print(
-            f"✅ Agent completed with limit. Made {e.current_count} tool calls (max: {e.max_calls})."
+            f"✅ Agent completed with limit. Made {limit_exceeded.current_count} tool calls (max: {limit_exceeded.max_calls})."
         )
 
         return SearchAgentResult(
@@ -310,6 +260,50 @@ class MongoDBSearchAgent:
         print("🤖 Agent is processing your question (this may take 30-60 seconds)...")
 
         # Run agent with event tracking
+        tool_calls: list[dict] = []
+
+        async def track_tool_calls(ctx: Any, event: Any) -> None:
+            """Event handler to track all tool calls (per-run, concurrency-safe)."""
+            # Handle nested async streams
+            if hasattr(event, "__aiter__"):
+                async for sub in event:
+                    await track_tool_calls(ctx, sub)
+                return
+
+            if not isinstance(event, FunctionToolCallEvent):
+                return
+
+            tool_call = {"tool_name": event.part.tool_name, "args": event.part.args}
+            tool_calls.append(tool_call)
+            tool_num = len(tool_calls)
+
+            # Note: counter increment is handled by tool pre-call validation (tools.py)
+            # Parse args to extract query for display
+            try:
+                args_dict = (
+                    json.loads(event.part.args)
+                    if isinstance(event.part.args, str)
+                    else event.part.args
+                )
+                query = (
+                    args_dict.get("query", "N/A")[:QUERY_DISPLAY_TRUNCATE_LENGTH]
+                    if isinstance(args_dict, dict)
+                    else str(event.part.args)[:QUERY_DISPLAY_TRUNCATE_LENGTH]
+                )
+            except (json.JSONDecodeError, AttributeError, TypeError):
+                query = (
+                    str(event.part.args)[:QUERY_DISPLAY_TRUNCATE_LENGTH]
+                    if event.part.args
+                    else "N/A"
+                )
+
+            print(
+                f"🔍 Tool call #{tool_num}: {event.part.tool_name} with query: {query}..."
+            )
+            logger.info(
+                f"Tool Call #{tool_num}: {event.part.tool_name} with args: {event.part.args}"
+            )
+
         result = None
         try:
             result = await self.agent.run(
@@ -318,9 +312,8 @@ class MongoDBSearchAgent:
             )
             token_usage = self._extract_token_usage(result)
 
-            global _tool_calls
-            logger.info(f"Agent completed query. Tool calls: {len(_tool_calls)}")
-            print(f"✅ Agent completed query. Made {len(_tool_calls)} tool calls.")
+            logger.info(f"Agent completed query. Tool calls: {len(tool_calls)}")
+            print(f"✅ Agent completed query. Made {len(tool_calls)} tool calls.")
 
             try:
                 log_agent_run_async(self.agent, result, question)
@@ -329,12 +322,14 @@ class MongoDBSearchAgent:
 
             return SearchAgentResult(
                 answer=result.output,
-                tool_calls=_tool_calls.copy(),
+                tool_calls=tool_calls.copy(),
                 token_usage=token_usage,
             )
 
-        except ToolCallLimitExceeded as e:
-            return self._handle_tool_call_limit_exceeded(e, result, question)
+        except ToolCallLimitExceeded as limit_exceeded:
+            return self._handle_tool_call_limit_exceeded(
+                limit_exceeded, result, question, tool_calls
+            )
 
         except Exception as e:
             logger.error(f"Error during agent execution: {e}")

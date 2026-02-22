@@ -297,7 +297,6 @@ def test_reset_and_verify_counters(
     cypher_config, mock_neo4j_schema, mock_agent_instance
 ):
     """Test that _reset_and_verify_counters resets tool calls and verifies counter"""
-    import cypher_agent.agent as agent_module
     from cypher_agent.tools import (
         _check_and_increment_tool_call_count,
         get_tool_call_count,
@@ -320,23 +319,16 @@ def test_reset_and_verify_counters(
         set_max_tool_calls(TEST_MAX_TOOL_CALLS)
         reset_tool_call_count()
 
-        # Simulate some tool calls in the global list
-        agent_module._tool_calls.append({"tool_name": "test", "args": "test"})
-        agent_module._tool_calls.append({"tool_name": "test2", "args": "test2"})
-
         # Increment counter to simulate previous query
         for _ in range(TEST_TOOL_CALL_COUNT_BEFORE_RESET):
             _check_and_increment_tool_call_count()
         assert get_tool_call_count() == TEST_TOOL_CALL_COUNT_BEFORE_RESET
-        assert len(agent_module._tool_calls) == TEST_TOOL_CALL_COUNT_BEFORE_RESET
 
         # Call reset and verify
         agent._reset_and_verify_counters()
 
         # Verify counter is reset
         assert get_tool_call_count() == TEST_TOOL_CALL_COUNT_AFTER_RESET
-        # Verify tool calls list is reset
-        assert len(agent_module._tool_calls) == TEST_TOOL_CALL_COUNT_AFTER_RESET
 
 
 # Integration tests
